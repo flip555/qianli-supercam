@@ -15,6 +15,7 @@
   .dot.warn{background:#e5a83d}
   .ver{color:#8b949e;font:12px ui-monospace,Menlo,monospace;margin-left:8px;white-space:nowrap}
   .ver.update{color:#ffd166;cursor:pointer;text-decoration:underline}
+  .feedmode{font:11px ui-monospace,Menlo,monospace;color:#8b949e;margin-left:6px}
   .meta{margin-left:auto;color:#8b949e;font-variant-numeric:tabular-nums}
   main{padding:16px;max-width:1400px;margin:0 auto}
   .stage{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:16/9;
@@ -93,6 +94,7 @@
   <h1>SuperCam &mdash; live</h1>
   <span class="meta" id="meta">connecting&hellip;</span>
   <span class="ver" id="ver"></span>
+  <span class="feedmode" id="feedmode"></span>
 </header>
 <main>
   <div class="stage mode-wipe" id="stage">
@@ -198,7 +200,12 @@ function mjpegFallback(){
   vcDecoder=null;
   vcanvas.style.display='none'; vid.style.display='block';
   watch(vid,'/video.mjpg');
-  console.warn('visible feed: using the MJPEG fallback');
+  const why = ('VideoDecoder' in window) ? 'no WebCodecs in this browser'
+            : (window.isSecureContext ? 'WebCodecs unavailable'
+               : 'WebCodecs needs a secure context - open this over https (or localhost)');
+  const fm=document.getElementById('feedmode');
+  if(fm){ fm.textContent='mjpeg'; fm.title='visible feed: MJPEG from the relay - '+why; }
+  console.warn('visible feed: MJPEG fallback - '+why);
 }
 function startVisibleCodec(){
   let au=[], sps=null, ts=0, configured=false, buf=new Uint8Array(0), gotFrame=false;
@@ -212,7 +219,10 @@ function startVisibleCodec(){
       try{
         vcDecoder=new VideoDecoder({
           output:(f)=>{
-            if(!gotFrame){ gotFrame=true; clearTimeout(vcWatchdog); }
+            if(!gotFrame){ gotFrame=true; clearTimeout(vcWatchdog);
+              const fm=document.getElementById('feedmode');
+              if(fm){ fm.textContent='codec'; fm.title='visible feed: decoded in this browser (no transcoding on the relay)'; }
+            }
             if(vcanvas.width!==f.displayWidth||vcanvas.height!==f.displayHeight){
               vcanvas.width=f.displayWidth; vcanvas.height=f.displayHeight; layout();
             }

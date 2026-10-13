@@ -635,6 +635,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.path.split("?")[0]
         if p in ("/", "/index.html"):
+            print("page served to %s" % (self.headers.get("User-Agent", "?")[:90]), flush=True)
             b = _page()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

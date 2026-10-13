@@ -1,0 +1,29 @@
+services:
+  qianli-supercam:
+    build: .
+    image: qianli-supercam
+    container_name: qianli-supercam
+    # Host networking is strongly recommended: discovery sweeps the local subnet,
+    # which a bridged network would hide from the container.
+    network_mode: host
+    environment:
+      CAMERA_HOST: auto           # "auto" discovers, or pin it, e.g. 192.168.1.85
+      CAMERA_CIDRS: ""            # optional: "192.168.1.0/24" (default: local /24s)
+      PORT: "8099"
+      PALETTE: rainbow            # rainbow | ironbow | whitehot | blackhot
+      THERMAL_SCALE: "0.01"
+      THERMAL_OFFSET: "0.0"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  # --- Bridge-networking alternative (use INSTEAD of network_mode: host) ---
+  # qianli-supercam-bridge:
+  #   build: .
+  #   image: qianli-supercam
+  #   ports: ["8099:8099"]
+  #   environment:
+  #     CAMERA_HOST: 192.168.1.85     # discovery can't see the LAN from a bridge
+  #     CALIBRATION_PATH: /data/calibration.json
+  #   volumes: ["./data:/data"]
+  #   restart: unless-stopped

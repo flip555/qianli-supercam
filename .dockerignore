@@ -1,0 +1,10 @@
+.git
+.gitignore
+__pycache__
+*.py[cod]
+.venv
+data
+*.h264
+*.ts
+*.m3u8
+run.pid

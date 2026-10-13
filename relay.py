@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""SuperCam live relay - proven client loop.
+
+Handshake reuses the reverse-engineered client; the read loop is the one that
+provably pulls the full stream (~1.2 MB/s). The browser decodes the visible
+H.264 itself (WebCodecs on /raw.h264); thermal is served as MJPEG.
+"""
+import http.server, io, os, queue, socketserver, subprocess, sys, threading, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from supercam.client import SuperCam, keepalive      # handshake + packet builders
+from supercam import thermal as TH
+from PIL import Image
+
+HOST = os.environ.get("CAMERA_HOST", "auto")      # "auto" = discover on the LAN
+CIDRS = [c for c in os.environ.get("CAMERA_CIDRS", "").split(",") if c]
+PORT = int(os.environ.get("PORT", "8099"))
+PALETTE = os.environ.get("PALETTE", "rainbow")
+SCALE = float(os.environ.get("THERMAL_SCALE", "0.01"))
+OFFSET = float(os.environ.get("THERMAL_OFFSET", "0.0"))
+
+_lock = threading.Lock()
+CAL_PATH = (os.environ.get("CALIBRATION_PATH")
+            or os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.json"))
+
+
+def _load_cal():
+    import json
+    try:
+        with open(CAL_PATH) as f:
+            c = json.load(f)
+    except Exception:
+        c = {}
+    return {"ts": float(c.get("ts", 1.0) or 1.0),
+            "tx": float(c.get("tx", 0.0) or 0.0),
+            "ty": float(c.get("ty", 0.0) or 0.0)}
+_state = {"vjpeg": None, "vts": 0.0, "tjpeg": None, "tts": 0.0,
+          "stats": None, "connected": False, "vbytes": 0, "tbytes": 0, "frames": 0}
+_raw_subs: "set[queue.Queue]" = set()
+_raw_lock = threading.Lock()
+_vin: "queue.Queue[bytes]" = queue.Queue(maxsize=3)
+_venc_synced = False
+_verr = ""
+_vrestarts = 0
+_vframes = 0
+_vproc = None
+_vwriter_started = False
+_vdropped = 0
+
+
+def _start_video_ffmpeg() -> None:
+    global _vproc, _venc_synced
+    _venc_synced = False          # re-arm: wait for the next SPS for this process
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
+           "-fflags", "+genpts+igndts", "-err_detect", "ignore_err",
+           "-analyzeduration", "500000", "-probesize", "200000",
+           "-f", "h264", "-i", "-",
+           "-vf", "scale=1280:-2", "-r", "15", "-q:v", "6",
+           "-f", "mjpeg", "-flush_packets", "1", "pipe:1"]
+    _vproc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=open("/tmp/ffvideo.log", "ab"))
+    threading.Thread(target=_video_reader, args=(_vproc,), daemon=True).start()
+
+
+def _video_reader(p) -> None:
+    buf = bytearray()
+    try:
+        while True:
+            d = p.stdout.read(65536)
+            if not d:
+                break
+            buf += d
+            while True:
+                i = buf.find(b"\xff\xd8")
+                if i < 0:
+                    if len(buf) > 2_000_000:
+                        del buf[:-2]
+                    break
+                j = buf.find(b"\xff\xd9", i + 2)
+                if j < 0:
+                    if i:
+                        del buf[:i]
+                    break
+                jpeg = bytes(buf[i:j + 2])
+                del buf[:j + 2]
+                global _vframes
+                _vframes += 1
+                with _lock:
+                    _state["vjpeg"] = jpeg
+                    _state["vts"] = time.time()
+    except Exception:
+        pass
+
+
+def _video_writer() -> None:
+    global _vproc, _verr, _vrestarts
+    while True:
+        data = _vin.get()
+        try:
+            if _vproc is None or _vproc.poll() is not None:
+                _vrestarts += 1
+                _start_video_ffmpeg()
+            _vproc.stdin.write(data)
+            _vproc.stdin.flush()
+        except Exception as e:
+            _verr = repr(e)
+            try:
+                if _vproc:
+                    _vproc.stdin.close()
+            except Exception:
+                pass
+            _vproc = None
+
+
+def _thermal_worker(client, sock, data):
+    frames = client.dec.feed(data)
+    if not frames:
+        return
+    try:
+        img, stats = TH.decode(frames[-1], PALETTE, SCALE, OFFSET)
+        out = io.BytesIO(); img.save(out, format="JPEG", quality=80)
+        jpeg = out.getvalue()
+    except Exception:
+        return
+    with _lock:
+        _state["tjpeg"] = jpeg; _state["tts"] = time.time()
+        _state["stats"] = stats; _state["frames"] += 1
+
+
+def stream_loop(client) -> None:
+    """The proven tight loop: read only the stream sockets, keepalive every 10s."""
+    vids = [s for s in (client.video.get(0), client.video.get(1)) if s]
+    for s in vids:
+        s.setblocking(False)
+    valve = {client.video.get(0): 0, client.video.get(1): 1}
+    t_ka = time.time() + 10
+    while True:
+        if time.time() >= t_ka:
+            for v, k in client.probe_by_val.items():
+                s = client.socks.get(k)
+                if s:
+                    try:
+                        s.sendall(keepalive(v))
+                    except OSError:
+                        pass
+            t_ka = time.time() + 10
+        for s in vids:
+            try:
+                d = s.recv(262144)
+            except (BlockingIOError, OSError):
+                continue
+            if not d:
+                continue
+            v = valve.get(s)
+            if v == 0:
+                global _vwriter_started, _vdropped, _venc_synced
+                with _lock:
+                    _state["vbytes"] += len(d)
+                if not _venc_synced:
+                    _i = d.find(b"\x00\x00\x01\x67")
+                    if _i < 0:
+                        d_enc = None
+                    else:
+                        _venc_synced = True
+                        d_enc = d[_i:]
+                else:
+                    d_enc = d
+                if d_enc is not None:
+                    if not _vwriter_started:
+                        _vwriter_started = True
+                        threading.Thread(target=_video_writer, daemon=True).start()
+                    try:
+                        _vin.put_nowait(d_enc)
+                    except queue.Full:
+                        _vdropped += 1
+                with _raw_lock:
+                    subs = list(_raw_subs)
+                for q in subs:
+                    try:
+                        q.put_nowait(d)
+                    except queue.Full:
+                        pass
+            elif v == 1:
+                with _lock:
+                    _state["tbytes"] += len(d)
+                _thermal_worker(client, s, d)
+        time.sleep(0.001)
+
+
+def camera_loop() -> None:
+    while True:
+        try:
+            host = HOST
+            if host in ("", "auto", "discover"):
+                from supercam import discover as _d
+                cam = _d.find_one(CIDRS or None)
+                if not cam:
+                    raise RuntimeError("no camera found - set CAMERA_HOST or CAMERA_CIDRS")
+                host = cam["ip"]
+                print("discovered camera: %s %s" % (host, cam.get("name") or ""), flush=True)
+            c = SuperCam(host)
+            c.dec = TH.ThermalDecoder()
+            c.handshake()
+            with _lock:
+                _state["connected"] = True
+            print("connected (flags %s)" % {k: v.hex() for k, v in c.flag.items()}, flush=True)
+            stream_loop(c)
+        except Exception as e:
+            print("camera loop error:", repr(e), flush=True)
+        finally:
+            with _lock:
+                _state["connected"] = False
+            try:
+                for s in list(getattr(c, "socks", {}).values()):
+                    s.close()
+            except Exception:
+                pass
+        time.sleep(8)
+
+
+def _page() -> bytes:
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "web", "index.html"), "rb") as f:
+        return f.read()
+
+
+class H(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *a):
+        pass
+
+    def _jpegs(self, key, ts):
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        last = 0.0
+        while True:
+            with _lock:
+                j = _state[key]; t = _state[ts]
+            if j and t != last:
+                last = t
+                try:
+                    self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                     + str(len(j)).encode() + b"\r\n\r\n" + j + b"\r\n")
+                except OSError:
+                    return
+            time.sleep(0.02)
+
+    def do_POST(self):
+        self.do_GET()
+
+    def do_GET(self):
+        p = self.path.split("?")[0]
+        if p in ("/", "/index.html"):
+            b = _page()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(b)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b)
+        elif p == "/raw.h264":
+            q: "queue.Queue[bytes]" = queue.Queue(maxsize=400)
+            with _raw_lock:
+                _raw_subs.add(q)
+            self.send_response(200)
+            self.send_header("Content-Type", "video/h264")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                while True:
+                    try:
+                        self.wfile.write(q.get(timeout=5))
+                    except queue.Empty:
+                        continue
+                    except OSError:
+                        break
+            finally:
+                with _raw_lock:
+                    _raw_subs.discard(q)
+        elif p == "/stream.mjpg":
+            self._jpegs("tjpeg", "tts")
+        elif p == "/video.mjpg":
+            self._jpegs("vjpeg", "vts")
+        elif p == "/video.jpg":
+            with _lock:
+                j = _state["vjpeg"]
+            if not j:
+                self.send_response(503); self.send_header("Content-Length","0"); self.end_headers()
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(j)))
+                self.end_headers(); self.wfile.write(j)
+        elif p == "/thermal.json":
+            with _lock:
+                s = dict(_state)
+            body = ('{"stats":%s,"frames":%d,"connected":%s,"vbytes":%d}'
+                    % (__import__("json").dumps(s["stats"]), s["frames"],
+                       str(s["connected"]).lower(), s["vbytes"])).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif p == "/calibration":
+            import json
+            if self.command == "POST":
+                try:
+                    n = int(self.headers.get("Content-Length", "0") or 0)
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    cal = {"ts": max(0.1, min(10.0, float(body.get("ts", 1.0)))),
+                           "tx": max(-100.0, min(100.0, float(body.get("tx", 0.0)))),
+                           "ty": max(-100.0, min(100.0, float(body.get("ty", 0.0))))}
+                    with open(CAL_PATH, "w") as f:
+                        json.dump(cal, f)
+                    out = json.dumps(cal).encode()
+                    self.send_response(200)
+                except Exception as e:
+                    out = json.dumps({"error": str(e)}).encode()
+                    self.send_response(400)
+            else:
+                out = json.dumps(_load_cal()).encode()
+                self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+        elif p == "/health":
+            with _lock:
+                s = dict(_state)
+            body = ('{"connected":%s,"frames":%d,"vbytes":%d,"tbytes":%d,"vdropped":%d,"vjpeg":%s,"vframes":%d,"vq":%d,"verr":"%s","vrestarts":%d}'
+                    % (str(s["connected"]).lower(), s["frames"], s["vbytes"], s["tbytes"], _vdropped, str(bool(s["vjpeg"])).lower(), _vframes, _vin.qsize(), _verr.replace('"',"'"), _vrestarts)).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+
+class S(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+if __name__ == "__main__":
+    threading.Thread(target=camera_loop, daemon=True).start()
+    print("relay2 on :%d" % PORT, flush=True)
+    S(("0.0.0.0", PORT), H).serve_forever()

@@ -118,22 +118,40 @@ def _video_writer() -> None:
             _vproc = None
 
 
+def _camera_reachable() -> bool:
+    """Quick probe: is the camera answering on its control port right now?"""
+    host = getattr(_client, "host", None) or HOST
+    if not host or host in ("auto", "discover"):
+        return False
+    try:
+        s = socket.create_connection((host, 3001), timeout=2)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
 def _stall_watchdog() -> None:
     """Recover the video pipeline when frames stop arriving while connected.
 
-    A camera reboot leaves this wedged with no error at all: the ffmpeg process
-    stays alive and its stdin simply goes quiet, so nothing raises and the web
-    view goes blank until the whole service is restarted. Two distinct cases:
+    A camera reboot leaves this wedged with no error at all: ffmpeg stays alive
+    and its input simply goes quiet, so nothing raises and the view goes blank
+    until the service is restarted. Three responses, in increasing force:
 
       * the camera is still sending bytes but no JPEGs come out -> the encoder is
         wedged, so restart it;
       * the camera has gone silent -> its session is dead, so drop the sockets and
-        let camera_loop rebuild it.
+        let camera_loop rebuild it;
+      * the camera is up and answering yet frames still will not flow after
+        several attempts -> the session is beyond saving, so exit and let the
+        supervisor start a clean process.
 
-    Both paths are throttled so this cannot turn into a restart loop.
+    Every step is throttled, and the last resort only fires while the camera is
+    genuinely reachable, so it can never fight a camera that is still booting.
     """
     global _vproc, _vrestarts, _vstalls
     last_action = 0.0
+    actions = 0
     hist = collections.deque(maxlen=24)          # (time, camera bytes)
     while True:
         time.sleep(4)
@@ -145,12 +163,16 @@ def _stall_watchdog() -> None:
         if not connected or vts <= 0:
             continue
         age = time.time() - vts
-        if age < 12 or time.time() - last_action < 15:
-            continue                                   # not stale, or still cooling down
+        if age < 12:
+            actions = 0                            # frames are flowing again
+            continue
+        if time.time() - last_action < 15:
+            continue                               # still cooling down
         old = next((vb for (t, vb) in hist if time.time() - t <= 20), vbytes)
         sending = vbytes != old
         last_action = time.time()
         _vstalls += 1
+        actions += 1
         if sending:
             try:
                 if _vproc:
@@ -171,6 +193,14 @@ def _stall_watchdog() -> None:
                         sock.close()
                     except Exception:
                         pass
+        if actions >= 3 and _camera_reachable():
+            print("pipeline stuck for %.0fs with the camera up after %d attempts "
+                  "- exiting so the supervisor starts it clean" % (age, actions), flush=True)
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+            os._exit(2)
 
 
 def _thermal_worker(client, sock, data):

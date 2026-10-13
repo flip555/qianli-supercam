@@ -289,12 +289,18 @@ let CAM=null;
 const modal=document.getElementById('camModal');
 const sameNet=(a,b)=>{ if(!a||!b) return true; const x=a.split('.'),y=b.split('.');
   return x.length>2&&y.length>2&&x[0]===y[0]&&x[1]===y[1]&&x[2]===y[2]; };
+const BANDISMISS='netbanner.dismissed';   /* remembered across reloads */
+const bannerDismissed=()=>{ try{ return localStorage.getItem(BANDISMISS)==='1'; }catch(e){ return false; } };
 function showBanner(ip){
+  if(bannerDismissed()) return;
   document.getElementById('bantext').textContent =
     'Camera found at '+ip+', which is not on this network ('+(location.hostname||'this host')+').';
   document.getElementById('netbanner').hidden=false;
 }
-document.getElementById('bandismiss').onclick=()=>document.getElementById('netbanner').hidden=true;
+document.getElementById('bandismiss').onclick=()=>{
+  document.getElementById('netbanner').hidden=true;
+  try{ localStorage.setItem(BANDISMISS,'1'); }catch(e){}
+};
 document.getElementById('banset').onclick=openCam;
 function openCam(){
   modal.hidden=false;

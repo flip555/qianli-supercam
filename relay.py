@@ -24,6 +24,24 @@ OFFSET = float(os.environ.get("THERMAL_OFFSET", "0.0"))
 _lock = threading.Lock()
 CAL_PATH = (os.environ.get("CALIBRATION_PATH")
             or os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.json"))
+PALETTE_PATH = (os.environ.get("PALETTE_PATH")
+                or os.path.join(os.path.dirname(CAL_PATH), "palette.txt"))
+_palette = {"name": PALETTE}          # live palette - the GUI can change it
+
+
+def _load_palette():
+    """Restore the palette chosen in the GUI (falls back to the default)."""
+    try:
+        with open(PALETTE_PATH) as f:
+            name = f.read().strip()
+        if name in TH.LUTS:
+            _palette["name"] = name
+            print("palette restored: %s" % name, flush=True)
+    except Exception:
+        pass
+
+
+_load_palette()
 
 
 def _load_cal():
@@ -208,7 +226,7 @@ def _thermal_worker(client, sock, data):
     if not frames:
         return
     try:
-        img, stats = TH.decode(frames[-1], PALETTE, SCALE, OFFSET)
+        img, stats = TH.decode(frames[-1], _palette["name"], SCALE, OFFSET)
         out = io.BytesIO(); img.save(out, format="JPEG", quality=80)
         jpeg = out.getvalue()
     except Exception:
@@ -700,6 +718,32 @@ class H(http.server.BaseHTTPRequestHandler):
             else:
                 out = json.dumps(_load_cal()).encode()
                 self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+        elif p == "/palette":
+            import json, urllib.parse
+            name = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                    .get("name") or [None])[0]
+            if name is None:
+                out = json.dumps({"ok": True, "palette": _palette["name"],
+                                  "available": sorted(TH.LUTS)}).encode()
+                self.send_response(200)
+            elif name in TH.LUTS:
+                _palette["name"] = name
+                try:
+                    with open(PALETTE_PATH, "w") as fh:
+                        fh.write(name)
+                except Exception:
+                    pass
+                print("palette -> %s" % name, flush=True)
+                out = json.dumps({"ok": True, "palette": name}).encode()
+                self.send_response(200)
+            else:
+                out = json.dumps({"ok": False, "error": "unknown palette",
+                                  "available": sorted(TH.LUTS)}).encode()
+                self.send_response(400)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
             self.end_headers()

@@ -197,7 +197,11 @@ document.getElementById('size').onclick=e=>{
   stage.style.setProperty('--pipw',pipw[pi]);
   e.target.textContent='PiP: '+({s:'sm',m:'med',l:'lg'})[pi];
 };
-document.getElementById('pal').onchange=e=>fetch('/palette?name='+e.target.value);
+const palsel=document.getElementById('pal');
+palsel.onchange=()=>fetch('/palette?name='+encodeURIComponent(palsel.value))
+  .then(r=>r.json()).then(j=>{ if(!j.ok) console.warn('palette refused:', j.error); }).catch(()=>{});
+fetch('/palette').then(r=>r.json())
+  .then(j=>{ if(j.ok && j.palette) palsel.value=j.palette; }).catch(()=>{});
 
 /* wipe (off by default) */
 const wb=document.getElementById('wipebar'), wr=document.getElementById('wipe');

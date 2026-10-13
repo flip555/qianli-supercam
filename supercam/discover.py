@@ -6,7 +6,7 @@ sending the captured probe packet and reading its reply. Cameras also listen on
 TCP 3000 for the actual streams.
 
     python -m supercam.discover                       # the local /24(s)
-    python -m supercam.discover --cidr 172.20.1.0/24  # a specific range
+    python -m supercam.discover --cidr 192.168.1.0/24  # a specific range
     python -m supercam.discover --cidr 10.0.0.0/24 --json
 """
 from __future__ import annotations

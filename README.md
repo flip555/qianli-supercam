@@ -6,7 +6,7 @@ vendor app and without a Windows PC**.
 
 Point it at your network and it finds the camera, connects, and serves a web GUI.
 
-![live thermal frame](docs/thermal-example.jpg)
+![SuperCam live view - visible and thermal, in Wipe mode](docs/supercam-example.jpg)
 
 ## Quick start
 

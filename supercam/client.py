@@ -44,7 +44,7 @@ def load(path=SRC, tmax=6.0):
 
 
 class SuperCam:
-    def __init__(self, host="172.20.1.85"):
+    def __init__(self, host="192.168.1.64"):
         self.host = host
         self.socks = {}
         self.value_of = {}
@@ -171,7 +171,7 @@ class SuperCam:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="172.20.1.85")
+    ap.add_argument("--host", default="192.168.1.64")
     ap.add_argument("--seconds", type=float, default=60)
     ap.add_argument("--out", default="/root/native_main.h264")
     a = ap.parse_args()

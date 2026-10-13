@@ -112,7 +112,7 @@ root shell - so the missing "apply" step needs no vendor protocol at all:
     write settings (the ritual above)  ->  telnet in as root  ->  reboot -f
 
 Verified end to end: a change written by this project came up live after a
-reboot (the camera broadcast `ARP who-has 172.20.1.85 tell 172.20.1.85`, its own
+reboot (the camera broadcast `ARP who-has 192.168.1.64 tell 192.168.1.64`, its own
 duplicate-address probe, as it started on the stored address).
 
 Security note: a blank-password root shell on the network is a serious exposure -

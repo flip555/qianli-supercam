@@ -5,7 +5,7 @@ Handshake reuses the reverse-engineered client; the read loop is the one that
 provably pulls the full stream (~1.2 MB/s). The browser decodes the visible
 H.264 itself (WebCodecs on /raw.h264); thermal is served as MJPEG.
 """
-import http.server, io, os, queue, socket, socketserver, subprocess, sys, threading, time
+import collections, http.server, io, os, queue, socket, socketserver, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from supercam.client import SuperCam, keepalive, load  # handshake + packet builders
@@ -51,6 +51,7 @@ _vframes = 0
 _vproc = None
 _vwriter_started = False
 _vdropped = 0
+_vstalls = 0
 
 
 def _start_video_ffmpeg() -> None:
@@ -115,6 +116,61 @@ def _video_writer() -> None:
             except Exception:
                 pass
             _vproc = None
+
+
+def _stall_watchdog() -> None:
+    """Recover the video pipeline when frames stop arriving while connected.
+
+    A camera reboot leaves this wedged with no error at all: the ffmpeg process
+    stays alive and its stdin simply goes quiet, so nothing raises and the web
+    view goes blank until the whole service is restarted. Two distinct cases:
+
+      * the camera is still sending bytes but no JPEGs come out -> the encoder is
+        wedged, so restart it;
+      * the camera has gone silent -> its session is dead, so drop the sockets and
+        let camera_loop rebuild it.
+
+    Both paths are throttled so this cannot turn into a restart loop.
+    """
+    global _vproc, _vrestarts, _vstalls
+    last_action = 0.0
+    hist = collections.deque(maxlen=24)          # (time, camera bytes)
+    while True:
+        time.sleep(4)
+        with _lock:
+            connected = bool(_state.get("connected"))
+            vts = _state.get("vts") or 0.0
+            vbytes = _state.get("vbytes") or 0
+        hist.append((time.time(), vbytes))
+        if not connected or vts <= 0:
+            continue
+        age = time.time() - vts
+        if age < 12 or time.time() - last_action < 15:
+            continue                                   # not stale, or still cooling down
+        old = next((vb for (t, vb) in hist if time.time() - t <= 20), vbytes)
+        sending = vbytes != old
+        last_action = time.time()
+        _vstalls += 1
+        if sending:
+            try:
+                if _vproc:
+                    _vproc.kill()
+            except Exception:
+                pass
+            _vproc = None
+            _vrestarts += 1
+            _start_video_ffmpeg()
+            print("video stalled %.0fs with data flowing - encoder restarted (stalls=%d)"
+                  % (age, _vstalls), flush=True)
+        else:
+            print("camera silent %.0fs - dropping the session so it rebuilds (stalls=%d)"
+                  % (age, _vstalls), flush=True)
+            if _client is not None:
+                for sock in list(_client.socks.values()):
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
 
 
 def _thermal_worker(client, sock, data):
@@ -621,8 +677,8 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == "/health":
             with _lock:
                 s = dict(_state)
-            body = ('{"connected":%s,"frames":%d,"vbytes":%d,"tbytes":%d,"vdropped":%d,"vjpeg":%s,"vframes":%d,"vq":%d,"verr":"%s","vrestarts":%d}'
-                    % (str(s["connected"]).lower(), s["frames"], s["vbytes"], s["tbytes"], _vdropped, str(bool(s["vjpeg"])).lower(), _vframes, _vin.qsize(), _verr.replace('"',"'"), _vrestarts)).encode()
+            body = ('{"connected":%s,"frames":%d,"vbytes":%d,"tbytes":%d,"vdropped":%d,"vjpeg":%s,"vframes":%d,"vq":%d,"verr":"%s","vrestarts":%d,"vstalls":%d}'
+                    % (str(s["connected"]).lower(), s["frames"], s["vbytes"], s["tbytes"], _vdropped, str(bool(s["vjpeg"])).lower(), _vframes, _vin.qsize(), _verr.replace('"',"'"), _vrestarts, _vstalls)).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -641,5 +697,6 @@ class S(socketserver.ThreadingTCPServer):
 
 if __name__ == "__main__":
     threading.Thread(target=camera_loop, daemon=True).start()
+    threading.Thread(target=_stall_watchdog, daemon=True).start()
     print("relay2 on :%d" % PORT, flush=True)
     S(("0.0.0.0", PORT), H).serve_forever()

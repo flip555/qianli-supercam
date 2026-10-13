@@ -62,6 +62,29 @@
   #calwrap label{color:#8b949e;font-size:12px}
   input[type=range]{accent-color:#4a80f0}
   .note{color:#8b949e;margin-top:14px;font-size:13px}
+  .banner{display:flex;gap:10px;align-items:center;padding:10px 16px;font-size:14px;
+    background:#3a2d12;border-bottom:1px solid #5c4a1e;color:#ffd48a}
+  .banner button{background:#4a3a16;border-color:#6b5522;color:#ffe1a8}
+  .banner .ghost{background:transparent;color:#c9a860}
+  .modal{position:fixed;inset:0;background:rgba(4,6,9,.72);display:flex;align-items:center;
+    justify-content:center;z-index:50;padding:16px}
+  .modal[hidden]{display:none}
+  .sheet{background:#11161d;border:1px solid #2b3542;border-radius:12px;max-width:460px;width:100%;
+    padding:18px 20px;max-height:90vh;overflow:auto}
+  .sheet h2{margin:0 0 4px;font-size:16px}
+  .sheet p.sub{margin:0 0 14px;color:#8b949e;font-size:13px}
+  .row{display:flex;gap:10px;align-items:center;margin-bottom:9px}
+  .row label{width:104px;color:#8b949e;font-size:13px}
+  .row input{flex:1;background:#0b0f14;border:1px solid #2b3542;border-radius:7px;color:#e6e8eb;
+    padding:7px 9px;font:inherit;font-family:ui-monospace,Menlo,monospace}
+  .kv{display:grid;grid-template-columns:104px 1fr;gap:4px 10px;margin:6px 0 14px;
+    font-size:13px;color:#c6cdd6}
+  .kv b{color:#8b949e;font-weight:400}
+  .warn{background:#3a1d1d;border:1px solid #5c2b2b;color:#ffb4b4;border-radius:8px;
+    padding:8px 10px;font-size:12.5px;margin:10px 0}
+  .ok{color:#7ee2a8;font-size:13px;min-height:18px}
+  .err{color:#ff9d9d;font-size:13px;min-height:18px}
+  .sheet .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 </style>
 </head>
 <body>
@@ -70,6 +93,11 @@
   <h1>SuperCam &mdash; live</h1>
   <span class="meta" id="meta">connecting&hellip;</span>
 </header>
+<div id="netbanner" class="banner" hidden>
+  <span id="bantext"></span>
+  <button id="banset">Set camera IP</button>
+  <button id="bandismiss" class="ghost">Dismiss</button>
+</div>
 <main>
   <div class="stage mode-pip" id="stage">
     <div id="vwrap"><img id="vid" src="/video.mjpg" alt="visible stream" draggable="false"></div>
@@ -103,11 +131,31 @@
       <button id="calsave">Save as default</button>
     </span>
     <button id="snap">Snapshot</button>
+    <button id="cog" title="Camera network settings">&#9881; Camera</button>
   </div>
   <p class="note">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
   Wipe is off by default; the thermal never moves &mdash; calibration adjusts the video layer.</p>
 </main>
 
+<div id="camModal" class="modal" hidden>
+  <div class="sheet">
+    <h2>Camera network settings</h2>
+    <p class="sub">Read and written directly to the camera over its control port.</p>
+    <div class="kv" id="camkv"><b>status</b><span>reading&hellip;</span></div>
+    <div class="row"><label for="camname">Name</label><input id="camname" readonly></div>
+    <div class="row"><label for="camip">IP address</label><input id="camip" placeholder="192.168.1.85"></div>
+    <div class="row"><label for="cammask">Netmask</label><input id="cammask" placeholder="255.255.255.0"></div>
+    <div class="row"><label for="camgw">Gateway</label><input id="camgw" placeholder="0.0.0.0"></div>
+    <div class="row"><label for="camdns">DNS</label><input id="camdns" placeholder="0.0.0.0"></div>
+    <div class="warn">The camera <b>reboots</b> to apply a network change, so the live view drops for
+      roughly 30 seconds. This relay will rediscover it automatically.</div>
+    <div id="camstatus" class="ok"></div>
+    <div class="actions">
+      <button id="camcancel" class="ghost">Cancel</button>
+      <button id="camapply">Apply to camera</button>
+    </div>
+  </div>
+</div>
 <script>
 const stage=document.getElementById('stage'), vid=document.getElementById('vid'),
       vwrap=document.getElementById('vwrap'), thimg=document.getElementById('thimg'),
@@ -234,6 +282,67 @@ function tick(){
   }).catch(()=>{ meta.textContent='no status'; });
 }
 tick(); setInterval(tick,1000);
+
+/* ---- camera settings: read, write, and the "not on this network" banner ---- */
+let CAM=null;
+const modal=document.getElementById('camModal');
+const sameNet=(a,b)=>{ if(!a||!b) return true; const x=a.split('.'),y=b.split('.');
+  return x.length>2&&y.length>2&&x[0]===y[0]&&x[1]===y[1]&&x[2]===y[2]; };
+function showBanner(ip){
+  document.getElementById('bantext').textContent =
+    'Camera found at '+ip+', which is not on this network ('+(location.hostname||'this host')+').';
+  document.getElementById('netbanner').hidden=false;
+}
+document.getElementById('bandismiss').onclick=()=>document.getElementById('netbanner').hidden=true;
+document.getElementById('banset').onclick=openCam;
+function openCam(){
+  modal.hidden=false;
+  const kv=document.getElementById('camkv'); kv.innerHTML='<b>status</b><span>reading\u2026</span>';
+  document.getElementById('camstatus').textContent='';
+  fetch('/camera',{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    if(!j.ok) throw new Error(j.error||'cannot read settings');
+    CAM=j;
+    kv.innerHTML='<b>name</b><span>'+(j.name||'-')+'</span>'+
+                 '<b>firmware</b><span>'+(j.firmware||'-')+'</span>'+
+                 '<b>current</b><span>'+(j.ip||'-')+' / '+(j.mask||'-')+'</span>';
+    document.getElementById('camname').value=j.name||'';
+    document.getElementById('camip').value=j.ip||'';
+    document.getElementById('cammask').value=j.mask||'';
+    document.getElementById('camgw').value=j.gw||'';
+    document.getElementById('camdns').value=j.dns||'';
+  }).catch(e=>{ kv.innerHTML='<b>status</b><span>'+e.message+'</span>'; });
+}
+document.getElementById('cog').onclick=openCam;
+document.getElementById('camcancel').onclick=()=>modal.hidden=true;
+document.getElementById('camapply').onclick=async()=>{
+  const st=document.getElementById('camstatus');
+  const body={ip:document.getElementById('camip').value.trim(),
+              mask:document.getElementById('cammask').value.trim(),
+              gw:document.getElementById('camgw').value.trim(),
+              dns:document.getElementById('camdns').value.trim()};
+  if(!confirm('Write '+body.ip+' to the camera?\n\nThe camera reboots and the live view will drop for ~30s.')) return;
+  st.className=''; st.textContent='writing\u2026';
+  const ac=new AbortController(); const to=setTimeout(()=>ac.abort(), 12000);
+  try{
+    const r=await fetch('/camera',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body),signal:ac.signal});
+    const j=await r.json();
+    const d=j.detail||{};
+    if(j.ok){
+      st.className='ok';
+      st.textContent='Applied \u2014 the camera is now at '+j.requested+'. It reboots; the view returns shortly.';
+    } else {
+      let why = d.attempts ? d.attempts.map(a=>'socket '+a.socket[0]+': '+(a.result||'')+(a.after?(' -> '+a.after):'')+(a.after_error?(' / '+a.after_error):'')).join('; ') : (j.error||'');
+      st.className='err';
+      st.textContent='Not applied. '+(why||'the camera did not accept the change');
+    }
+  }catch(e){
+    st.className='err';
+    st.textContent = e.name==='AbortError' ? 'Timed out waiting for the camera (12s).' : ('Failed: '+e.message);
+  } finally { clearTimeout(to); }
+};
+setTimeout(()=>{ fetch('/camera',{cache:'no-store'}).then(r=>r.json())
+  .then(j=>{ if(j.ok){ CAM=j; if(!sameNet(j.ip,location.hostname)) showBanner(j.ip); } }).catch(()=>{}); },5000);
 
 document.getElementById('snap').onclick=()=>{
   const c=document.createElement('canvas');

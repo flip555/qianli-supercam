@@ -6,6 +6,7 @@ services:
     # Host networking is strongly recommended: discovery sweeps the local subnet,
     # which a bridged network would hide from the container.
     network_mode: host
+    cap_add: [NET_ADMIN]        # lets the relay add a temporary address to reach a camera still on its factory subnet
     environment:
       CAMERA_HOST: auto           # "auto" discovers, or pin it, e.g. 192.168.1.85
       CAMERA_CIDRS: ""            # optional: "192.168.1.0/24" (default: local /24s)
@@ -13,6 +14,8 @@ services:
       PALETTE: rainbow            # rainbow | ironbow | whitehot | blackhot
       THERMAL_SCALE: "0.01"
       THERMAL_OFFSET: "0.0"
+      CAMERA_FALLBACK_CIDR: "192.168.1.0/24"    # a brand-new camera is usually here
+      CAMERA_FALLBACK_IPS: "192.168.1.85,192.168.1.10,192.168.1.100"
     volumes:
       - ./data:/data
     restart: unless-stopped

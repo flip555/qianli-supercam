@@ -26,6 +26,13 @@ PROBE_PORT = 3001
 STREAM_PORT = 3000
 MAGIC = b"\x78\xb6\x3a\x12"      # every camera packet starts with this
 
+# A camera straight out of the box is usually still on its factory subnet, which
+# is not the subnet the host is on. We add a temporary alias for that subnet (needs
+# NET_ADMIN / cap_add in docker) and probe the usual factory addresses.
+FALLBACK_CIDR = os.environ.get("CAMERA_FALLBACK_CIDR", "192.168.1.0/24")
+FALLBACK_IPS = [x for x in os.environ.get(
+    "CAMERA_FALLBACK_IPS", "192.168.1.85,192.168.1.10,192.168.1.100").split(",") if x]
+
 
 def local_cidrs(siblings: int = 0) -> list[str]:
     """The /24 around each non-loopback IPv4 address.
@@ -116,6 +123,45 @@ def _open(host: str, port: int, timeout: float) -> bool:
         return False
 
 
+def ensure_alias(cidr: str, log=print) -> bool:
+    """Add a temporary address on the given subnet so we can reach a camera
+    that is still on its factory network. Best effort; needs NET_ADMIN."""
+    try:
+        net = ipaddress.ip_network(cidr, strict=False)
+    except ValueError:
+        return False
+    host = str(list(net.hosts())[-1])
+    try:
+        out = subprocess.run(["ip", "addr", "add", f"{host}/{net.prefixlen}",
+                              "dev", "eth0"], capture_output=True, text=True, timeout=5)
+        if out.returncode == 0:
+            log(f"added temporary address {host}/{net.prefixlen} to reach the factory subnet")
+            return True
+        # 'File exists' also means we can talk to that subnet
+        return "File exists" in (out.stderr or "")
+    except Exception:
+        return False
+
+
+def find_on_factory_address(log=print):
+    """Last resort for a freshly plugged-in camera."""
+    if not FALLBACK_IPS:
+        return []
+    ensure_alias(FALLBACK_CIDR, log=log)
+    pkt = load_probe()
+    if not pkt:
+        return []
+    found = []
+    for ip in FALLBACK_IPS:
+        info = _identify(ip.strip(), pkt, 1.0)
+        if info:
+            info["stream_port"] = STREAM_PORT
+            info["control_port"] = PROBE_PORT
+            found.append(info)
+            log(f"  camera: {info['ip']}  {info.get('name') or '(no name)'}  [factory address]")
+    return found
+
+
 def scan(cidrs: list[str] | None = None, workers: int = 128,
          timeout: float = 0.4, log=print) -> list[dict]:
     cidrs = cidrs or local_cidrs()
@@ -150,6 +196,9 @@ def find_one(cidrs: list[str] | None = None, log=print) -> dict | None:
         wide = local_cidrs(siblings=4)
         log("nothing on the local /24(s) - widening to %d nearby subnets" % len(wide))
         found = scan(wide, log=log)
+    if not found and not cidrs:
+        log("still nothing - checking the camera's factory address")
+        found = find_on_factory_address(log=log)
     return found[0] if found else None
 
 

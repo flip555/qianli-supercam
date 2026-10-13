@@ -54,6 +54,38 @@ Note the stream is **block-aligned**: byte 0 of a capture is not a block start
 The client sends an 8-byte keepalive (`05 00 00 00 cccc cccc <flag> 00 00 00`) on
 each media socket roughly every 10 s. Without it the camera stops the stream.
 
+## Reading and writing the camera's settings
+
+Settings are a fixed **376-byte structure**; the camera reports it in the reply to
+a control probe (offset 88 of a 458/464-byte reply).
+
+| offset | field |
+|--------|-------|
+| 0   (24) | device name |
+| 24  (16) | IP address |
+| 40  (16) | netmask |
+| 56  (16) | gateway |
+| 72  (16) | DNS |
+| 88  (16) | factory/misc field |
+| 104 (72) | opaque: ports, MAC, flags - preserve verbatim |
+| 176 (96) | firmware string |
+| 276 (100)| build date |
+
+**Writing** is a three-step ritual on one control connection, captured from the
+vendor client:
+
+```
+6c            plain probe        -> camera replies with its settings
+6c .. 01 ..7801  WRITE MODE probe -> 6-byte ack
+<376 bytes>   the settings block -> ack
+6a            COMMIT             -> the camera ECHOES 6a back
+```
+
+The camera **reboots** to apply a network change (it beeps when ready, ~2 min).
+Two traps learned the hard way: the write-mode probe differs from a plain probe
+at offsets 70 and 80/81 (not where you'd guess), and a burst of probes down one
+connection makes the camera reset it - each probe needs its own connection.
+
 ## Acknowledgement
 
 Reverse-engineered from observed behaviour only; no vendor documentation was

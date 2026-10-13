@@ -5,11 +5,12 @@ Handshake reuses the reverse-engineered client; the read loop is the one that
 provably pulls the full stream (~1.2 MB/s). The browser decodes the visible
 H.264 itself (WebCodecs on /raw.h264); thermal is served as MJPEG.
 """
-import http.server, io, os, queue, socketserver, subprocess, sys, threading, time
+import http.server, io, os, queue, socket, socketserver, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from supercam.client import SuperCam, keepalive      # handshake + packet builders
+from supercam.client import SuperCam, keepalive, load  # handshake + packet builders
 from supercam import thermal as TH
+from supercam import settings as CFG
 from PIL import Image
 
 HOST = os.environ.get("CAMERA_HOST", "auto")      # "auto" = discover on the LAN
@@ -36,6 +37,9 @@ def _load_cal():
             "ty": float(c.get("ty", 0.0) or 0.0)}
 _state = {"vjpeg": None, "vts": 0.0, "tjpeg": None, "tts": 0.0,
           "stats": None, "connected": False, "vbytes": 0, "tbytes": 0, "frames": 0}
+_client = None                 # the live camera client (for settings read/write)
+_cfg_cache = {"at": 0.0, "cfg": None, "key": None}
+_cfg_lock = threading.RLock()   # re-entrant: the write path re-reads the config
 _raw_subs: "set[queue.Queue]" = set()
 _raw_lock = threading.Lock()
 _vin: "queue.Queue[bytes]" = queue.Queue(maxsize=3)
@@ -187,6 +191,214 @@ def stream_loop(client) -> None:
         time.sleep(0.001)
 
 
+def _control_sockets(c):
+    """The camera's control (3001) sockets, paired with their probe packets."""
+    out = []
+    for _t, sp, dp, pl in load():
+        if dp == 3001 and len(pl) == 88:
+            s = c.socks.get((sp, dp))
+            if s:
+                out.append(((sp, dp), s, pl))
+    return out
+
+
+def _read_config(timeout: float = 2.0, fresh: bool = False):
+    """Return (config_dict, key).
+
+    The handshake already receives the camera's config reply, so that buffered
+    copy is used first - it costs nothing and never disturbs the stream. Only if
+    it is missing do we actively probe, and we remember which socket answered.
+    """
+    global _cfg_cache
+    with _cfg_lock:
+        c = _client
+        if not c:
+            raise RuntimeError("camera not connected")
+
+        # 1) free: anything the handshake already read (skipped when we must see
+        #    the camera's *current* settings, e.g. to verify a write)
+        for k, b in ([] if fresh else list(c.buf.items())):
+            found = CFG.find(bytes(b))
+            if found:
+                cfg = CFG.parse(found[1])
+                _cfg_cache = {"at": time.time(), "cfg": cfg, "key": k}
+                return cfg, k
+
+        # 2) ask - previous answering socket first, then the rest
+        socks = _control_sockets(c)
+        if not socks:
+            raise RuntimeError("no control sockets on the live session")
+        prev = (_cfg_cache or {}).get("key")
+        socks.sort(key=lambda t: 0 if t[0] == prev else 1)
+        for _k, s, pl in socks:
+            try:
+                s.settimeout(0.3)
+                s.sendall(pl)
+            except OSError:
+                pass
+        blob = {}
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            for k, s, _pl in socks:
+                try:
+                    d = s.recv(8192)
+                except (socket.timeout, BlockingIOError, OSError):
+                    continue
+                if d:
+                    blob[k] = blob.get(k, b"") + d
+            for k, b in blob.items():
+                found = CFG.find(b)
+                if found:
+                    cfg = CFG.parse(found[1])
+                    _cfg_cache = {"at": time.time(), "cfg": cfg, "key": k}
+                    return cfg, k
+            time.sleep(0.05)
+
+        # 3) last resort: last known good values, so the UI still works
+        if _cfg_cache.get("cfg"):
+            return _cfg_cache["cfg"], _cfg_cache.get("key")
+        raise RuntimeError("no configuration reply from the camera")
+
+
+_dead_socks = set()
+SELECT = bytes.fromhex("0100000002000000")   # enters config mode on a control socket
+COMMIT = bytes.fromhex("78b63a12766964656f20736572766572000000000000000000000000383838383838000000000000000000000000000038383838383800000000000000000000000000006a00000000000000000000000000000021d36c87")   # the app's one-off commit/reboot packet
+
+
+# Captured verbatim from the vendor client's own settings write (see
+# docs/PROTOCOL.md). Deriving these by patching a plain probe got the offsets
+# wrong, so they are stored exactly as observed.
+WRITE_MODE = bytes.fromhex(
+    "78b63a12766964656f2073657276657200000000000000000000000038383838383800"
+    "0000000000000000000000000038383838383800000000000000000000000000006c00"
+    "010000000000000000007801000021d36c87")
+COMMIT = bytes.fromhex(
+    "78b63a12766964656f2073657276657200000000000000000000000038383838383800"
+    "0000000000000000000000000038383838383800000000000000000000000000006a00"
+    "0000000000000000000000000021d36c87")
+
+
+def _probe_variants():
+    """(plain probe, write-mode probe, commit packet) - exactly as captured."""
+    probes = [pl for (_t, _sp, dp, pl) in load() if dp == 3001 and len(pl) == 88]
+    base = next((p for p in probes if len(p) > 69 and p[68] == 0x6C), probes[0])
+    return base, WRITE_MODE, COMMIT
+
+
+def _write_config_fresh(host: str, block: bytes, want_ip: str, budget: float = 12.0):
+    """Write settings exactly the way the vendor client does:
+
+        connect -> 6c probe (read settings) -> 6c+01 (write mode)
+                -> 376-byte block -> 6a commit (camera echoes 6a)
+
+    Then verify by reading the settings back.
+    """
+    t0 = time.time()
+    base, wmode, commit = _probe_variants()
+    try:
+        s = socket.socket()
+        s.settimeout(2.0)
+        s.connect((host, 3001))
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError as e:
+        return {"applied": False, "attempts": [{"step": "connect", "result": type(e).__name__}]}
+
+    def exchange(payload, label, wait=0.45):
+        """send a packet, collect whatever comes back"""
+        s.sendall(payload)
+        time.sleep(wait)
+        buf = b""
+        try:
+            s.settimeout(0.5)
+            while True:
+                d = s.recv(8192)
+                if not d:
+                    break
+                buf += d
+        except (socket.timeout, BlockingIOError, OSError):
+            pass
+        return buf
+
+    steps = []
+    try:
+        r = exchange(base, "read")
+        steps.append({"step": "read-settings", "reply_bytes": len(r)})
+        r = exchange(wmode, "write-mode")
+        steps.append({"step": "write-mode", "reply_bytes": len(r)})
+        r = exchange(block, "block")
+        steps.append({"step": "settings", "reply_bytes": len(r)})
+        r = exchange(commit, "commit", wait=0.6)
+        acked = len(r) >= 88 and r[68:70] == b"\x6a\x00"
+        steps.append({"step": "commit", "reply_bytes": len(r), "acknowledged": acked})
+    except OSError as e:
+        steps.append({"step": "send", "result": type(e).__name__})
+        try:
+            s.close()
+        except Exception:
+            pass
+        return {"applied": False, "attempts": steps}
+    try:
+        s.close()
+    except Exception:
+        pass
+
+    for _ in range(3):
+        time.sleep(1.5)
+        if time.time() - t0 > budget:
+            break
+        try:
+            cfg, _k = _read_config(timeout=1.2, fresh=True)
+            if cfg.get("ip") == want_ip:
+                return {"applied": True, "attempts": steps, "now": cfg.get("ip")}
+            steps.append({"verify": "still " + str(cfg.get("ip"))})
+            break
+        except Exception as e:
+            steps.append({"verify_error": str(e)})
+    return {"applied": False, "attempts": steps, "elapsed": round(time.time() - t0, 2)}
+
+
+def _write_config(block: bytes, key, want_ip: str, budget: float = 5.0):
+    """Send the config block to at most a couple of control sockets and report
+    honestly what happened. Bounded: never takes longer than `budget` seconds."""
+    t0 = time.time()
+    with _cfg_lock:
+        c = _client
+        if not c:
+            raise RuntimeError("camera not connected")
+        socks = _control_sockets(c)
+        socks.sort(key=lambda t: 0 if t[0] == key else 1)
+        attempts = []
+        for k, s, _pl in socks[:3]:
+            if k in _dead_socks:
+                continue
+            if time.time() - t0 > budget:
+                break
+            try:
+                s.settimeout(0.8)
+                # mirror the vendor app: enter config mode, poke, then write
+                s.sendall(SELECT)
+                time.sleep(0.12)
+                if _pl:
+                    s.sendall(_pl)
+                time.sleep(0.12)
+                s.sendall(block)
+                attempts.append({"socket": list(k), "result": "sent"})
+            except OSError as e:
+                _dead_socks.add(k)
+                attempts.append({"socket": list(k), "result": type(e).__name__})
+                continue
+            time.sleep(0.5)
+            try:
+                cfg, _k2 = _read_config(timeout=1.2, fresh=True)
+                if cfg.get("ip") == want_ip:
+                    return {"applied": True, "attempts": attempts, "now": cfg.get("ip")}
+                attempts[-1]["after"] = cfg.get("ip")
+                break            # camera answered and the value did not change
+            except Exception as e:
+                attempts[-1]["after_error"] = str(e)
+        return {"applied": False, "attempts": attempts, "elapsed": round(time.time() - t0, 2)}
+
+
 def camera_loop() -> None:
     while True:
         try:
@@ -201,6 +413,8 @@ def camera_loop() -> None:
             c = SuperCam(host)
             c.dec = TH.ThermalDecoder()
             c.handshake()
+            global _client
+            _client = c
             with _lock:
                 _state["connected"] = True
             print("connected (flags %s)" % {k: v.hex() for k, v in c.flag.items()}, flush=True)
@@ -305,6 +519,44 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif p == "/camera":
+            import json
+            if self.command == "POST":
+                try:
+                    n = int(self.headers.get("Content-Length", "0") or 0)
+                    want = json.loads(self.rfile.read(n) or b"{}")
+                    cfg, key = _read_config()
+                    ip = want.get("ip") or cfg["ip"]
+                    if not CFG.validate_ip(ip):
+                        raise ValueError("invalid IP address")
+                    block = CFG.set_fields(bytes.fromhex(cfg["_raw"]),
+                                           ip=ip,
+                                           mask=want.get("mask") or None,
+                                           gw=want.get("gw") or None,
+                                           dns=want.get("dns") or None)
+                    try:
+                        res = _write_config_fresh(_client.host if _client else "", block, ip)
+                    except Exception as _e:
+                        res = _write_config(block, key, ip)
+                    out = json.dumps({"ok": res["applied"], "requested": ip,
+                                      "detail": res,
+                                      "note": "a network change makes the camera reboot"}).encode()
+                    self.send_response(200 if res["applied"] else 502)
+                except Exception as e:
+                    out = json.dumps({"ok": False, "error": str(e)}).encode()
+                    self.send_response(400)
+            else:
+                try:
+                    cfg, _key = _read_config()
+                    out = json.dumps({"ok": True, **{k: v for k, v in cfg.items() if k != "_raw"}}).encode()
+                    self.send_response(200)
+                except Exception as e:
+                    out = json.dumps({"ok": False, "error": str(e)}).encode()
+                    self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
         elif p == "/calibration":
             import json
             if self.command == "POST":

@@ -303,33 +303,39 @@ def _write_config_fresh(host: str, block: bytes, want_ip: str, budget: float = 1
     except OSError as e:
         return {"applied": False, "attempts": [{"step": "connect", "result": type(e).__name__}]}
 
-    def exchange(payload, label, wait=0.45):
-        """send a packet, collect whatever comes back"""
+    def exchange(payload, label, wait=0.45, expect_len=None, expect_op=None):
+        """send a packet and wait for the reply the vendor app expects, so
+        replies cannot be mis-attributed to the following step."""
         s.sendall(payload)
         time.sleep(wait)
         buf = b""
-        try:
-            s.settimeout(0.5)
-            while True:
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            try:
+                s.settimeout(0.25)
                 d = s.recv(8192)
-                if not d:
-                    break
+            except (socket.timeout, BlockingIOError, OSError):
+                d = b""
+            if d:
                 buf += d
-        except (socket.timeout, BlockingIOError, OSError):
-            pass
+            if expect_len and len(buf) >= expect_len:
+                break
+            if expect_op and len(buf) >= 70 and buf[68:70] == expect_op:
+                break
         return buf
 
     steps = []
     try:
-        r = exchange(base, "read")
+        r = exchange(base, "read", expect_len=440)
         steps.append({"step": "read-settings", "reply_bytes": len(r)})
-        r = exchange(wmode, "write-mode")
+        r = exchange(wmode, "write-mode", expect_len=6)
         steps.append({"step": "write-mode", "reply_bytes": len(r)})
-        r = exchange(block, "block")
+        r = exchange(block, "block", expect_len=6)
         steps.append({"step": "settings", "reply_bytes": len(r)})
-        r = exchange(commit, "commit", wait=0.6)
+        r = exchange(commit, "commit", wait=0.6, expect_op=b"\x6a\x00")
         acked = len(r) >= 88 and r[68:70] == b"\x6a\x00"
         steps.append({"step": "commit", "reply_bytes": len(r), "acknowledged": acked})
+        time.sleep(2.0)          # let the camera settle before the socket closes
     except OSError as e:
         steps.append({"step": "send", "result": type(e).__name__})
         try:

@@ -82,6 +82,17 @@ vendor client:
 ```
 
 The camera **reboots** to apply a network change (it beeps when ready, ~2 min).
+
+**Known gap (2026-10-13):** the capture shows the vendor app sends **no explicit
+reboot command** - after the commit it simply closes every connection (`FIN` on
+all sockets). A settings write from this project stores the new configuration
+(verified: the camera reports the new IP and keeps reporting it), but the camera
+does **not** restart to apply it - not even when every client is disconnected.
+So the app's write evidently reaches a state ours does not. Our write socket only
+replays one probe before writing, where the app's had run its full setup on that
+connection first (two `6c` probes, a `d7` probe, then the 8-byte
+`0100000002000000` select) and only wrote later in the same session. Reproducing
+that full per-connection sequence is the next thing to try.
 Two traps learned the hard way: the write-mode probe differs from a plain probe
 at offsets 70 and 80/81 (not where you'd guess), and a burst of probes down one
 connection makes the camera reset it - each probe needs its own connection.

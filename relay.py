@@ -262,6 +262,11 @@ def _read_config(timeout: float = 2.0, fresh: bool = False):
 
 _dead_socks = set()
 SELECT = bytes.fromhex("0100000002000000")   # enters config mode on a control socket
+D7 = bytes.fromhex(
+    "78b63a12766964656f2073657276657200000000000000000000000038383838383800"
+    "000000000000000000000000003838383838380000000000000000000000000000d700"
+    "010000000000000000000800000021d36c87")
+SELECT8 = bytes.fromhex("0100000002000000")
 COMMIT = bytes.fromhex("78b63a12766964656f20736572766572000000000000000000000000383838383838000000000000000000000000000038383838383800000000000000000000000000006a00000000000000000000000000000021d36c87")   # the app's one-off commit/reboot packet
 
 
@@ -272,6 +277,11 @@ WRITE_MODE = bytes.fromhex(
     "78b63a12766964656f2073657276657200000000000000000000000038383838383800"
     "0000000000000000000000000038383838383800000000000000000000000000006c00"
     "010000000000000000007801000021d36c87")
+D7 = bytes.fromhex(
+    "78b63a12766964656f2073657276657200000000000000000000000038383838383800"
+    "000000000000000000000000003838383838380000000000000000000000000000d700"
+    "010000000000000000000800000021d36c87")
+SELECT8 = bytes.fromhex("0100000002000000")
 COMMIT = bytes.fromhex(
     "78b63a12766964656f2073657276657200000000000000000000000038383838383800"
     "0000000000000000000000000038383838383800000000000000000000000000006a00"
@@ -328,6 +338,9 @@ def _write_config_fresh(host: str, block: bytes, want_ip: str, budget: float = 1
     try:
         r = exchange(base, "read", expect_len=440)
         steps.append({"step": "read-settings", "reply_bytes": len(r)})
+        # NOTE: replaying the app's extra per-connection setup (a second 6c probe,
+        # the d7 probe, the 8-byte select) made the camera store NOTHING, so the
+        # simpler sequence is kept. See docs/PROTOCOL.md ("Known gap").
         r = exchange(wmode, "write-mode", expect_len=6)
         steps.append({"step": "write-mode", "reply_bytes": len(r)})
         r = exchange(block, "block", expect_len=6)

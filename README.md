@@ -90,4 +90,6 @@ If this saved you from installing the vendor app:
 
 ## Licence
 
-TBD.
+MIT — see [LICENSE](LICENSE). Use it, fork it, sell it; just keep the copyright
+notice. (The reverse-engineering notes in `docs/` describe this project's own
+work; the camera firmware and the vendor app are not included or redistributed.)

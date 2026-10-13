@@ -192,13 +192,14 @@ function watch(img,src){
    to the URL to force the old path. */
 const vcanvas=document.getElementById('vidcanvas');
 const vctx=vcanvas.getContext('2d');
-let vcOn=false, vcDecoder=null, vcWatchdog=null, vcFallback=false;
+let vcOn=false, vcDecoder=null, vcWatchdog=null, vcFallback=false, vcLastFrame=0;
 function mjpegFallback(){
   if(vcFallback) return;
   vcFallback=true; vcOn=false;
   try{ if(vcDecoder) vcDecoder.close(); }catch(e){}
   vcDecoder=null;
   vcanvas.style.display='none'; vid.style.display='block';
+  if(!vid.getAttribute('src')) vid.src='/video.mjpg';
   watch(vid,'/video.mjpg');
   const why = ('VideoDecoder' in window) ? 'no WebCodecs in this browser'
             : (window.isSecureContext ? 'WebCodecs unavailable'
@@ -219,9 +220,11 @@ function startVisibleCodec(){
       try{
         vcDecoder=new VideoDecoder({
           output:(f)=>{
+            vcLastFrame=Date.now();
             if(!gotFrame){ gotFrame=true; clearTimeout(vcWatchdog);
               const fm=document.getElementById('feedmode');
               if(fm){ fm.textContent='codec'; fm.title='visible feed: decoded in this browser (no transcoding on the relay)'; }
+              if(vid.getAttribute('src')) vid.removeAttribute('src');   /* stop the MJPEG stream */
             }
             if(vcanvas.width!==f.displayWidth||vcanvas.height!==f.displayHeight){
               vcanvas.width=f.displayWidth; vcanvas.height=f.displayHeight; layout();
@@ -285,6 +288,7 @@ function startVisibleCodec(){
 }
 if(('VideoDecoder' in window) && !/[?&]mjpeg=1/.test(location.search)) startVisibleCodec();
 else mjpegFallback();
+setInterval(()=>{ if(vcOn && !vcFallback && vcLastFrame && Date.now()-vcLastFrame>6000) mjpegFallback(); }, 2000);
 
 /* camera-up indicator: the relay's /health is authoritative, so a frozen view
    can no longer be mistaken for a dead camera (there is no beeper on ours) */

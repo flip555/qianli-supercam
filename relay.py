@@ -635,7 +635,9 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.path.split("?")[0]
         if p in ("/", "/index.html"):
-            print("page served to %s" % (self.headers.get("User-Agent", "?")[:90]), flush=True)
+            print("page served to %s | host=%s proto=%s" % (self.headers.get("User-Agent","?")[:60],
+                                                       self.headers.get("Host","?"),
+                                                       self.headers.get("X-Forwarded-Proto","http")), flush=True)
             b = _page()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -645,6 +647,8 @@ class H(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b)
         elif p == "/raw.h264":
             _hits["rawconn"] += 1
+            _t0, _nb = time.time(), 0
+            print("raw.h264 client connected", flush=True)
             q: "queue.Queue[bytes]" = queue.Queue(maxsize=400)
             with _raw_lock:
                 _raw_subs.add(q)
@@ -655,12 +659,15 @@ class H(http.server.BaseHTTPRequestHandler):
             try:
                 while True:
                     try:
-                        self.wfile.write(q.get(timeout=5))
+                        _d = q.get(timeout=5)
+                        _nb += len(_d)
+                        self.wfile.write(_d)
                     except queue.Empty:
                         continue
                     except OSError:
                         break
             finally:
+                print("raw.h264 client left: %.0fs, %d KB" % (time.time()-_t0, _nb//1024), flush=True)
                 with _raw_lock:
                     _raw_subs.discard(q)
         elif p == "/stream.mjpg":

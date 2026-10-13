@@ -101,3 +101,20 @@ connection makes the camera reset it - each probe needs its own connection.
 
 Reverse-engineered from observed behaviour only; no vendor documentation was
 used and no vendor code is redistributed.
+
+
+## Applying a settings change: restart the camera
+
+The camera runs a **Telnet server on port 23** (embedded Linux, HiLinux, kernel
+3.4.35, Hisilicon). It accepts **`root` with a blank password**, which yields a
+root shell - so the missing "apply" step needs no vendor protocol at all:
+
+    write settings (the ritual above)  ->  telnet in as root  ->  reboot -f
+
+Verified end to end: a change written by this project came up live after a
+reboot (the camera broadcast `ARP who-has 172.20.1.85 tell 172.20.1.85`, its own
+duplicate-address probe, as it started on the stored address).
+
+Security note: a blank-password root shell on the network is a serious exposure -
+anyone who can reach port 23 owns the camera. Restrict that port (or set a
+password) if the camera shares a network with anything untrusted.

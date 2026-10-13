@@ -88,6 +88,14 @@ If this saved you from installing the vendor app:
 * GitHub Sponsors / Ko-fi: **flip555**
 * Buy me a coffee: <https://buymeacoffee.com/flip555>
 
+## Updating
+
+The running version is shown in the GUI header. When a newer release is
+published, that version becomes an update link - click it and the relay
+downloads the release, keeps a timestamped backup of the current deployment in
+place, and restarts. Releases are tagged `vX.Y.Z` on GitHub; the version lives
+in `supercam/__init__.py`.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE). Use it, fork it, sell it; just keep the copyright

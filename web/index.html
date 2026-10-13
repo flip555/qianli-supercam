@@ -13,6 +13,8 @@
   .dot{width:9px;height:9px;border-radius:50%;background:#e5484d}
   .dot.on{background:#30a46c}
   .dot.warn{background:#e5a83d}
+  .ver{color:#8b949e;font:12px ui-monospace,Menlo,monospace;margin-left:8px;white-space:nowrap}
+  .ver.update{color:#ffd166;cursor:pointer;text-decoration:underline}
   .meta{margin-left:auto;color:#8b949e;font-variant-numeric:tabular-nums}
   main{padding:16px;max-width:1400px;margin:0 auto}
   .stage{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:16/9;
@@ -89,6 +91,7 @@
   <span class="dot" id="dot"></span>
   <h1>SuperCam &mdash; live</h1>
   <span class="meta" id="meta">connecting&hellip;</span>
+  <span class="ver" id="ver"></span>
 </header>
 <main>
   <div class="stage mode-wipe" id="stage">
@@ -197,6 +200,42 @@ async function pollStatus(){
   }catch(e){ dot.className='dot'; meta.textContent='relay unreachable'; }
 }
 setInterval(pollStatus,3000); pollStatus();
+
+/* version, and self-update straight from the GitHub releases */
+const verEl=document.getElementById('ver');
+let REL=null;
+async function checkVersion(){
+  try{ const j=await (await fetch('/version',{cache:'no-store'})).json();
+       verEl.textContent='v'+j.version; verEl.title='repo: '+j.repo; }catch(e){}
+}
+async function checkUpdate(){
+  try{
+    const j=await (await fetch('/update',{cache:'no-store'})).json();
+    if(!j.ok || !j.available) return;
+    REL=j;
+    verEl.textContent='v'+j.current+' \u2192 '+j.latest;
+    verEl.title=(j.notes||'').slice(0,600);
+    verEl.classList.add('update');
+    verEl.onclick=doUpdate;
+  }catch(e){}
+}
+async function doUpdate(){
+  if(!REL) return;
+  if(!confirm('Update to '+REL.latest+'?\n\nThe relay downloads that release, keeps a backup of the current one, then restarts itself.')) return;
+  verEl.textContent='updating\u2026'; verEl.classList.remove('update');
+  try{ await fetch('/update',{method:'POST'}); }catch(e){}
+  const t0=Date.now();
+  const t=setInterval(async()=>{
+    try{
+      const v=await (await fetch('/version',{cache:'no-store'})).json();
+      if(v.version!==REL.current){ clearInterval(t); verEl.textContent='v'+v.version+' \u2014 reloading'; setTimeout(()=>location.reload(),800); }
+    }catch(e){}
+    if(Date.now()-t0>150000){ clearInterval(t); verEl.textContent='v+update?'; verEl.title='the relay did not come back on a new version'; }
+  },3000);
+}
+checkVersion();
+setTimeout(checkUpdate,4000);
+setInterval(checkVersion,60000);
 
 /* view modes */
 const pipw={s:'20%',m:'26%',l:'46%'}, order=['s','m','l']; let pi='m';

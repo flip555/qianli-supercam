@@ -12,8 +12,11 @@ from supercam.client import SuperCam, keepalive, load  # handshake + packet buil
 from supercam import thermal as TH
 from supercam import settings as CFG
 from supercam import reboot as REBOOT
+from supercam import update as UPD
+from supercam import __version__ as VERSION
 from PIL import Image
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 HOST = os.environ.get("CAMERA_HOST", "auto")      # "auto" = discover on the LAN
 CIDRS = [c for c in os.environ.get("CAMERA_CIDRS", "").split(",") if c]
 PORT = int(os.environ.get("PORT", "8099"))
@@ -722,6 +725,53 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(out)))
             self.end_headers()
             self.wfile.write(out)
+        elif p == "/version":
+            import json
+            out = json.dumps({"ok": True, "version": VERSION, "repo": UPD.REPO}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+        elif p == "/update":
+            import json
+            ok_flag = False
+            if self.command == "POST":
+                try:
+                    rel = UPD.latest()
+                    if not rel.get("tarball"):
+                        raise RuntimeError("no release found")
+                    res = UPD.apply(rel["tarball"], HERE)
+                    ok_flag = bool(res.get("ok"))
+                    out = json.dumps({"ok": ok_flag, "from": VERSION, "to": rel["tag"],
+                                      "detail": res}).encode()
+                    code = 200 if ok_flag else 500
+                except Exception as e:
+                    out, code = json.dumps({"ok": False, "error": str(e)}).encode(), 502
+                self.send_response(code)
+            else:
+                try:
+                    rel = UPD.latest()
+                    out = json.dumps({"ok": True, "current": VERSION, "latest": rel["tag"],
+                                      "name": rel["name"], "url": rel["url"],
+                                      "notes": rel["notes"][:1200],
+                                      "available": UPD.is_newer(rel["tag"], VERSION)}).encode()
+                    self.send_response(200)
+                except Exception as e:
+                    out = json.dumps({"ok": False, "error": str(e)}).encode()
+                    self.send_response(502)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+            try:
+                self.wfile.flush()
+            except Exception:
+                pass
+            if ok_flag:
+                print("release installed - exiting so the supervisor restarts cleanly", flush=True)
+                threading.Timer(1.5, lambda: os._exit(3)).start()
+            return
         elif p == "/palette":
             import json, urllib.parse
             name = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)

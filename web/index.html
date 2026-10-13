@@ -12,6 +12,7 @@
   header h1{font-size:15px;margin:0;font-weight:600}
   .dot{width:9px;height:9px;border-radius:50%;background:#e5484d}
   .dot.on{background:#30a46c}
+  .dot.warn{background:#e5a83d}
   .meta{margin-left:auto;color:#8b949e;font-variant-numeric:tabular-nums}
   main{padding:16px;max-width:1400px;margin:0 auto}
   .stage{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:16/9;
@@ -181,6 +182,22 @@ function watch(img,src){
 watch(vid,'/video.mjpg');
 watch(thimg,'/stream.mjpg');
 
+/* camera-up indicator: the relay's /health is authoritative, so a frozen view
+   can no longer be mistaken for a dead camera (there is no beeper on ours) */
+let _lastFrames=null, _lastAdvance=Date.now();
+async function pollStatus(){
+  try{
+    const j=await (await fetch('/health',{cache:'no-store'})).json();
+    const now=Date.now(), advanced=(_lastFrames!==null && j.frames>_lastFrames);
+    if(_lastFrames===null || advanced) _lastAdvance=now;
+    _lastFrames=j.frames;
+    if(j.connected && now-_lastAdvance<5000){ dot.className='dot on';   meta.textContent='live'; }
+    else if(j.connected)                    { dot.className='dot warn'; meta.textContent='connected, no frames'; }
+    else                                    { dot.className='dot';      meta.textContent='searching for the camera\u2026'; }
+  }catch(e){ dot.className='dot'; meta.textContent='relay unreachable'; }
+}
+setInterval(pollStatus,3000); pollStatus();
+
 /* view modes */
 const pipw={s:'20%',m:'26%',l:'46%'}, order=['s','m','l']; let pi='m';
 const MODE_KEY='supercam.mode';
@@ -279,7 +296,6 @@ function tick(){
         s.mean_c.toFixed(1)+'&deg;C avg &nbsp; '+s.min_c.toFixed(1)+'&deg;C min';
       lastStats=s; renderMarks(s);
     }
-    meta.textContent=(j.connected?'live':'idle')+' · MJPEG';
   }).catch(()=>{ meta.textContent='no status'; });
 }
 tick(); setInterval(tick,1000);
@@ -348,10 +364,71 @@ setTimeout(()=>{ fetch('/camera',{cache:'no-store'}).then(r=>r.json())
   .then(j=>{ if(j.ok){ CAM=j; } }).catch(()=>{}); },5000);
 
 document.getElementById('snap').onclick=()=>{
-  const c=document.createElement('canvas');
-  c.width=mimg.naturalWidth||1280; c.height=mimg.naturalHeight||720;
-  c.getContext('2d').drawImage(mimg,0,0,c.width,c.height);
-  const a=document.createElement('a'); a.download='supercam.jpg'; a.href=c.toDataURL('image/jpeg',0.92); a.click();
+  const cs=getComputedStyle(stage);
+  const num=(k,d)=>{ const v=parseFloat(cs.getPropertyValue(k)); return isNaN(v)?d:v; };
+  const mode=(stage.className.match(/mode-([a-z]+)/)||[])[1]||'pip';
+  const W=vid.naturalWidth||1280, H=vid.naturalHeight||720;
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const g=c.getContext('2d');
+  g.fillStyle='#000'; g.fillRect(0,0,W,H);
+  /* visible layer, with the calibration transform (#vwrap's translate/scale) */
+  if(mode!=='thermal' && vid.naturalWidth){
+    const ts=num('--ts',1), tx=num('--tx',0)/100*W, ty=num('--ty',0)/100*H;
+    g.save(); g.translate(W/2+tx,H/2+ty); g.scale(ts,ts);
+    g.drawImage(vid,-W/2,-H/2,W,H); g.restore();
+  }
+  /* thermal layer, mirroring each mode's CSS */
+  const tw=thimg.naturalWidth||160, th=thimg.naturalHeight||120;
+  let cover=null;
+  if(mode!=='video' && thimg.naturalWidth){
+    if(mode==='pip'){
+      const pw=num('--pipw',26)/100*W, ph=pw*th/tw, x=W-14-pw, y=H-14-ph;
+      g.imageSmoothingEnabled=false;
+      g.drawImage(thimg,x,y,pw,ph);
+      g.strokeStyle='#3a4553'; g.lineWidth=1; g.strokeRect(x+0.5,y+0.5,pw-1,ph-1);
+    } else {
+      const sc=Math.max(W/tw,H/th), dx=(W-tw*sc)/2, dy=(H-th*sc)/2;   /* object-fit: cover */
+      cover={sc:sc,dx:dx,dy:dy};
+      g.imageSmoothingEnabled=false;
+      if(mode==='wipe'){
+        const sx=num('--split',50)/100*W;
+        g.save(); g.beginPath(); g.rect(sx,0,W-sx,H); g.clip();
+        g.drawImage(thimg,dx,dy,tw*sc,th*sc); g.restore();
+        g.fillStyle='#fff'; g.fillRect(Math.max(0,sx-1),0,2,H);
+      } else {
+        g.drawImage(thimg,dx,dy,tw*sc,th*sc);
+      }
+    }
+  }
+  /* temperature marks, same mapping as the live overlay */
+  if(cover && lastStats){
+    const mark=(x,y,txt,col)=>{
+      const px=cover.dx+(x+0.5)*cover.sc, py=cover.dy+(y+0.5)*cover.sc;
+      if(px<0||px>W||py<0||py>H) return;
+      g.beginPath(); g.arc(px,py,6,0,6.2832);
+      g.fillStyle='rgba(0,0,0,0.25)'; g.fill();
+      g.lineWidth=2; g.strokeStyle=col; g.stroke();
+      g.font='13px ui-monospace,Menlo,monospace';
+      const w=g.measureText(txt).width+10;
+      g.fillStyle='rgba(8,10,13,0.82)'; g.fillRect(px+11,py-9,w,18);
+      g.strokeStyle='#4a5768'; g.lineWidth=1; g.strokeRect(px+11.5,py-8.5,w-1,17);
+      g.fillStyle='#fff'; g.textBaseline='middle'; g.fillText(txt,px+16,py+0.5);
+    };
+    const st2=lastStats;
+    if(st2.hot)  mark(st2.hot[0],st2.hot[1],st2.max_c.toFixed(1)+'\u00b0C','#ffd166');
+    if(st2.cold) mark(st2.cold[0],st2.cold[1],st2.min_c.toFixed(1)+'\u00b0C','#7fd1ff');
+  }
+  /* the readout, as shown on screen */
+  if(lastStats && mode!=='video'){
+    const txt=lastStats.max_c.toFixed(1)+'\u00b0C max   '+lastStats.mean_c.toFixed(1)+'\u00b0C avg   '+lastStats.min_c.toFixed(1)+'\u00b0C min';
+    g.font='15px ui-monospace,Menlo,monospace'; g.textBaseline='middle';
+    const w=g.measureText(txt).width+24, h=30, x=14, y=H-14-h;
+    g.fillStyle='rgba(8,10,13,0.72)'; g.fillRect(x,y,w,h);
+    g.strokeStyle='#2b3542'; g.lineWidth=1; g.strokeRect(x+0.5,y+0.5,w-1,h-1);
+    g.fillStyle='#e6e8eb'; g.fillText(txt,x+12,y+h/2);
+  }
+  const a=document.createElement('a');
+  a.download='supercam-'+mode+'.jpg'; a.href=c.toDataURL('image/jpeg',0.92); a.click();
 };
 /* apply the remembered view last, once everything above is defined */
 setSplit(+stored(SPLIT_KEY,50),false);

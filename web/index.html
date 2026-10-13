@@ -215,8 +215,6 @@ addEventListener('mousemove',move); addEventListener('touchmove',move);
 const endDrag=()=>{ if(drag){ drag=false; setSplit(+wr.value); } };
 addEventListener('mouseup',endDrag); addEventListener('touchend',endDrag);
 const stored=(k,d)=>{ try{ const v=localStorage.getItem(k); return v===null?d:v; }catch(e){ return d; } };
-setSplit(+stored(SPLIT_KEY,50),false);
-setMode(stored(MODE_KEY,'wipe'),false);
 
 /* calibration: the VIDEO moves, the thermal never does */
 const CAL={ts:1,tx:0,ty:0};
@@ -351,6 +349,9 @@ document.getElementById('snap').onclick=()=>{
   c.getContext('2d').drawImage(mimg,0,0,c.width,c.height);
   const a=document.createElement('a'); a.download='supercam.jpg'; a.href=c.toDataURL('image/jpeg',0.92); a.click();
 };
+/* apply the remembered view last, once everything above is defined */
+setSplit(+stored(SPLIT_KEY,50),false);
+setMode(stored(MODE_KEY,'wipe'),false);
 </script>
 </body>
 </html>

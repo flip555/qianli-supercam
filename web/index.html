@@ -62,10 +62,6 @@
   #calwrap label{color:#8b949e;font-size:12px}
   input[type=range]{accent-color:#4a80f0}
   .note{color:#8b949e;margin-top:14px;font-size:13px}
-  .banner{display:flex;gap:10px;align-items:center;padding:10px 16px;font-size:14px;
-    background:#3a2d12;border-bottom:1px solid #5c4a1e;color:#ffd48a}
-  .banner button{background:#4a3a16;border-color:#6b5522;color:#ffe1a8}
-  .banner .ghost{background:transparent;color:#c9a860}
   .modal{position:fixed;inset:0;background:rgba(4,6,9,.72);display:flex;align-items:center;
     justify-content:center;z-index:50;padding:16px}
   .modal[hidden]{display:none}
@@ -93,13 +89,8 @@
   <h1>SuperCam &mdash; live</h1>
   <span class="meta" id="meta">connecting&hellip;</span>
 </header>
-<div id="netbanner" class="banner" hidden>
-  <span id="bantext"></span>
-  <button id="banset">Set camera IP</button>
-  <button id="bandismiss" class="ghost">Dismiss</button>
-</div>
 <main>
-  <div class="stage mode-pip" id="stage">
+  <div class="stage mode-wipe" id="stage">
     <div id="vwrap"><img id="vid" src="/video.mjpg" alt="visible stream" draggable="false"></div>
     <img id="thimg" src="/stream.mjpg" alt="thermal" draggable="false">
     <div class="wipebar" id="wipebar"></div>
@@ -109,8 +100,8 @@
 
   <div class="bar">
     <div class="seg" id="modes">
-      <button data-mode="pip" class="on">PiP</button>
-      <button data-mode="wipe">Wipe</button>
+      <button data-mode="pip">PiP</button>
+      <button data-mode="wipe" class="on">Wipe</button>
       <button data-mode="thermal">Thermal</button>
       <button data-mode="video">Video</button>
     </div>
@@ -134,7 +125,7 @@
     <button id="cog" title="Camera network settings">&#9881; Camera</button>
   </div>
   <p class="note">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
-  Wipe is off by default; the thermal never moves &mdash; calibration adjusts the video layer.</p>
+  Wipe is the default view; the thermal never moves &mdash; calibration adjusts the video layer.</p>
 </main>
 
 <div id="camModal" class="modal" hidden>
@@ -192,13 +183,15 @@ watch(thimg,'/stream.mjpg');
 
 /* view modes */
 const pipw={s:'20%',m:'26%',l:'46%'}, order=['s','m','l']; let pi='m';
-document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('#modes button').forEach(x=>x.classList.remove('on'));
-  b.classList.add('on');
-  stage.className='stage mode-'+b.dataset.mode;
-  document.getElementById('wipewrap').classList.toggle('on', b.dataset.mode==='wipe');
+const MODE_KEY='supercam.mode';
+function setMode(m,save){
+  document.querySelectorAll('#modes button').forEach(x=>x.classList.toggle('on', x.dataset.mode===m));
+  stage.className='stage mode-'+m;
+  document.getElementById('wipewrap').classList.toggle('on', m==='wipe');
   layout(); renderMarks(lastStats);
-});
+  if(save){ try{ localStorage.setItem(MODE_KEY,m); }catch(e){} }
+}
+document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>setMode(b.dataset.mode,true));
 document.getElementById('size').onclick=e=>{
   pi=order[(order.indexOf(pi)+1)%order.length];
   stage.style.setProperty('--pipw',pipw[pi]);
@@ -208,7 +201,9 @@ document.getElementById('pal').onchange=e=>fetch('/palette?name='+e.target.value
 
 /* wipe (off by default) */
 const wb=document.getElementById('wipebar'), wr=document.getElementById('wipe');
-const setSplit=p=>{ stage.style.setProperty('--split',p+'%'); wr.value=p; };
+const SPLIT_KEY='supercam.split';
+const setSplit=(p,save=true)=>{ stage.style.setProperty('--split',p+'%'); wr.value=p;
+  if(save){ try{ localStorage.setItem(SPLIT_KEY,p); }catch(e){} } };
 wr.oninput=e=>setSplit(e.target.value);
 let drag=false;
 const move=e=>{ if(!drag)return; const r=stage.getBoundingClientRect();
@@ -217,8 +212,11 @@ wb.addEventListener('mousedown',e=>{ drag=true; e.preventDefault(); });
 wb.addEventListener('touchstart',e=>{ drag=true; e.preventDefault(); },{passive:false});
 document.addEventListener('selectstart',e=>{ if(drag) e.preventDefault(); });
 addEventListener('mousemove',move); addEventListener('touchmove',move);
-addEventListener('mouseup',()=>drag=false); addEventListener('touchend',()=>drag=false);
-setSplit(50);
+const endDrag=()=>{ if(drag){ drag=false; setSplit(+wr.value); } };
+addEventListener('mouseup',endDrag); addEventListener('touchend',endDrag);
+const stored=(k,d)=>{ try{ const v=localStorage.getItem(k); return v===null?d:v; }catch(e){ return d; } };
+setSplit(+stored(SPLIT_KEY,50),false);
+setMode(stored(MODE_KEY,'wipe'),false);
 
 /* calibration: the VIDEO moves, the thermal never does */
 const CAL={ts:1,tx:0,ty:0};
@@ -284,24 +282,9 @@ function tick(){
 }
 tick(); setInterval(tick,1000);
 
-/* ---- camera settings: read, write, and the "not on this network" banner ---- */
+/* ---- camera settings ---- */
 let CAM=null;
 const modal=document.getElementById('camModal');
-const sameNet=(a,b)=>{ if(!a||!b) return true; const x=a.split('.'),y=b.split('.');
-  return x.length>2&&y.length>2&&x[0]===y[0]&&x[1]===y[1]&&x[2]===y[2]; };
-const BANDISMISS='netbanner.dismissed';   /* remembered across reloads */
-const bannerDismissed=()=>{ try{ return localStorage.getItem(BANDISMISS)==='1'; }catch(e){ return false; } };
-function showBanner(ip){
-  if(bannerDismissed()) return;
-  document.getElementById('bantext').textContent =
-    'Camera found at '+ip+', which is not on this network ('+(location.hostname||'this host')+').';
-  document.getElementById('netbanner').hidden=false;
-}
-document.getElementById('bandismiss').onclick=()=>{
-  document.getElementById('netbanner').hidden=true;
-  try{ localStorage.setItem(BANDISMISS,'1'); }catch(e){}
-};
-document.getElementById('banset').onclick=openCam;
 function openCam(){
   modal.hidden=false;
   const kv=document.getElementById('camkv'); kv.innerHTML='<b>status</b><span>reading\u2026</span>';
@@ -360,7 +343,7 @@ document.getElementById('camapply').onclick=async()=>{
   } finally { clearTimeout(to); }
 };
 setTimeout(()=>{ fetch('/camera',{cache:'no-store'}).then(r=>r.json())
-  .then(j=>{ if(j.ok){ CAM=j; if(!sameNet(j.ip,location.hostname)) showBanner(j.ip); } }).catch(()=>{}); },5000);
+  .then(j=>{ if(j.ok){ CAM=j; } }).catch(()=>{}); },5000);
 
 document.getElementById('snap').onclick=()=>{
   const c=document.createElement('canvas');

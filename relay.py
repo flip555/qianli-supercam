@@ -21,6 +21,8 @@ HOST = os.environ.get("CAMERA_HOST", "auto")      # "auto" = discover on the LAN
 CIDRS = [c for c in os.environ.get("CAMERA_CIDRS", "").split(",") if c]
 PORT = int(os.environ.get("PORT", "8099"))
 PALETTE = os.environ.get("PALETTE", "rainbow")
+VIDEO_W = os.environ.get("VIDEO_WIDTH", "960")      # MJPEG fallback size
+VIDEO_FPS = os.environ.get("VIDEO_FPS", "10")       # MJPEG fallback rate
 SCALE = float(os.environ.get("THERMAL_SCALE", "0.01"))
 OFFSET = float(os.environ.get("THERMAL_OFFSET", "0.0"))
 
@@ -73,6 +75,8 @@ _vproc = None
 _vwriter_started = False
 _vdropped = 0
 _vstalls = 0
+_vid = {"subs": 0}          # viewers of /video.mjpg
+_vsub_lock = threading.Lock()
 
 
 def _start_video_ffmpeg() -> None:
@@ -82,7 +86,7 @@ def _start_video_ffmpeg() -> None:
            "-fflags", "+genpts+igndts", "-err_detect", "ignore_err",
            "-analyzeduration", "500000", "-probesize", "200000",
            "-f", "h264", "-i", "-",
-           "-vf", "scale=1280:-2", "-r", "15", "-q:v", "6",
+           "-vf", "scale=%s:-2" % VIDEO_W, "-r", VIDEO_FPS, "-q:v", "6",
            "-f", "mjpeg", "-flush_packets", "1", "pipe:1"]
     _vproc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=open("/tmp/ffvideo.log", "ab"))
@@ -120,9 +124,34 @@ def _video_reader(p) -> None:
 
 
 def _video_writer() -> None:
+    """Feed camera H.264 to the encoder - but only while somebody is watching.
+
+    The h264 -> MJPEG transcode is by far the biggest CPU cost here, and it used
+    to run around the clock whether or not anyone had the page open. With no
+    viewers there is nothing to encode, so the encoder is stopped (and the camera
+    stream is still drained, so the camera link itself is unaffected).
+    """
     global _vproc, _verr, _vrestarts
+    idle_since = None
     while True:
         data = _vin.get()
+        with _vsub_lock:
+            watching = _vid["subs"] > 0
+        if not watching:
+            if _vproc is not None:
+                if idle_since is None:
+                    idle_since = time.time()
+                elif time.time() - idle_since > 20:
+                    try:
+                        _vproc.kill()
+                    except Exception:
+                        pass
+                    _vproc = None
+                    print("no viewers left - encoder stopped", flush=True)
+            else:
+                idle_since = idle_since or time.time()
+            continue
+        idle_since = None
         try:
             if _vproc is None or _vproc.poll() is not None:
                 _vrestarts += 1
@@ -527,7 +556,9 @@ def _write_config(block: bytes, key, want_ip: str, budget: float = 5.0):
 
 
 def camera_loop() -> None:
+    delay = 8
     while True:
+        found = False
         try:
             host = HOST
             if host in ("", "auto", "discover"):
@@ -540,6 +571,7 @@ def camera_loop() -> None:
             c = SuperCam(host)
             c.dec = TH.ThermalDecoder()
             c.handshake()
+            found = True
             global _client
             _client = c
             with _lock:
@@ -556,7 +588,14 @@ def camera_loop() -> None:
                     s.close()
             except Exception:
                 pass
-        time.sleep(8)
+        # back off when the camera is missing (a flaky camera used to mean a full
+        # 2540-host sweep every 8 seconds); reset once it is back
+        if found:
+            delay = 8
+        else:
+            delay = min(delay * 2, 300)
+            print("camera not found - retrying in %ds" % delay, flush=True)
+        time.sleep(delay)
 
 
 def _page() -> bytes:
@@ -624,7 +663,13 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == "/stream.mjpg":
             self._jpegs("tjpeg", "tts")
         elif p == "/video.mjpg":
-            self._jpegs("vjpeg", "vts")
+            with _vsub_lock:
+                _vid["subs"] += 1
+            try:
+                self._jpegs("vjpeg", "vts")
+            finally:
+                with _vsub_lock:
+                    _vid["subs"] -= 1
         elif p == "/video.jpg":
             with _lock:
                 j = _state["vjpeg"]
@@ -801,8 +846,8 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == "/health":
             with _lock:
                 s = dict(_state)
-            body = ('{"connected":%s,"frames":%d,"vbytes":%d,"tbytes":%d,"vdropped":%d,"vjpeg":%s,"vframes":%d,"vq":%d,"verr":"%s","vrestarts":%d,"vstalls":%d}'
-                    % (str(s["connected"]).lower(), s["frames"], s["vbytes"], s["tbytes"], _vdropped, str(bool(s["vjpeg"])).lower(), _vframes, _vin.qsize(), _verr.replace('"',"'"), _vrestarts, _vstalls)).encode()
+            body = ('{"connected":%s,"frames":%d,"vbytes":%d,"tbytes":%d,"vdropped":%d,"vjpeg":%s,"vframes":%d,"vq":%d,"verr":"%s","vrestarts":%d,"vstalls":%d,"vsubs":%d}'
+                    % (str(s["connected"]).lower(), s["frames"], s["vbytes"], s["tbytes"], _vdropped, str(bool(s["vjpeg"])).lower(), _vframes, _vin.qsize(), _verr.replace('"',"'"), _vrestarts, _vstalls, _vid["subs"])).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))

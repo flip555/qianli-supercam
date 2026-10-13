@@ -76,6 +76,7 @@ _vwriter_started = False
 _vdropped = 0
 _vstalls = 0
 _vid = {"subs": 0}          # viewers of /video.mjpg
+_hits = {"raw": 0, "mjpeg": 0, "rawconn": 0}   # which path clients take
 _vsub_lock = threading.Lock()
 
 
@@ -642,6 +643,7 @@ class H(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b)
         elif p == "/raw.h264":
+            _hits["rawconn"] += 1
             q: "queue.Queue[bytes]" = queue.Queue(maxsize=400)
             with _raw_lock:
                 _raw_subs.add(q)
@@ -665,6 +667,7 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == "/video.mjpg":
             with _vsub_lock:
                 _vid["subs"] += 1
+                _hits["mjpeg"] += 1
             try:
                 self._jpegs("vjpeg", "vts")
             finally:
@@ -846,8 +849,8 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == "/health":
             with _lock:
                 s = dict(_state)
-            body = ('{"connected":%s,"frames":%d,"vbytes":%d,"tbytes":%d,"vdropped":%d,"vjpeg":%s,"vframes":%d,"vq":%d,"verr":"%s","vrestarts":%d,"vstalls":%d,"vsubs":%d}'
-                    % (str(s["connected"]).lower(), s["frames"], s["vbytes"], s["tbytes"], _vdropped, str(bool(s["vjpeg"])).lower(), _vframes, _vin.qsize(), _verr.replace('"',"'"), _vrestarts, _vstalls, _vid["subs"])).encode()
+            body = ('{"connected":%s,"frames":%d,"vbytes":%d,"tbytes":%d,"vdropped":%d,"vjpeg":%s,"vframes":%d,"vq":%d,"verr":"%s","vrestarts":%d,"vstalls":%d,"vsubs":%d,"rawconn":%d,"mjpegconn":%d}'
+                    % (str(s["connected"]).lower(), s["frames"], s["vbytes"], s["tbytes"], _vdropped, str(bool(s["vjpeg"])).lower(), _vframes, _vin.qsize(), _verr.replace('"',"'"), _vrestarts, _vstalls, _vid["subs"], _hits["rawconn"], _hits["mjpeg"])).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))

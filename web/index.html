@@ -204,8 +204,11 @@ function startVisibleCodec(){
   let au=[], sps=null, ts=0, configured=false, buf=new Uint8Array(0), gotFrame=false;
   const hex=(n)=>('0'+n.toString(16)).slice(-2);
   function flushAU(){
-    if(!au.length || !sps) return;
+    if(!au.length) return;
+    const isKey=au.some(n=>n.type===5), hasSps=au.some(n=>n.type===7);
+    if(!configured && !(isKey && hasSps)){ au=[]; return; }   /* start only at a keyframe with SPS */
     if(!configured){
+      if(!sps){ au=[]; return; }
       try{
         vcDecoder=new VideoDecoder({
           output:(f)=>{
@@ -218,7 +221,9 @@ function startVisibleCodec(){
           },
           error:()=>mjpegFallback()
         });
-        vcDecoder.configure({codec:'avc1.'+hex(sps[1])+hex(sps[2])+hex(sps[3]),optimizeForLatency:true});
+        const cs='avc1.'+hex(sps[1])+hex(sps[2])+hex(sps[3]);
+        vcDecoder.configure({codec:cs,optimizeForLatency:true});
+        console.info('visible feed: WebCodecs decoding', cs);
         configured=true;
       }catch(e){ mjpegFallback(); return; }
     }
@@ -256,7 +261,7 @@ function startVisibleCodec(){
       const res=await fetch('/raw.h264',{cache:'no-store'});
       if(!res.ok || !res.body) throw new Error('no raw stream');
       vcanvas.style.display='block'; vid.style.display='none'; vcOn=true;
-      vcWatchdog=setTimeout(()=>{ if(!gotFrame) mjpegFallback(); }, 6000);
+      vcWatchdog=setTimeout(()=>{ if(!gotFrame) mjpegFallback(); }, 10000);
       const reader=res.body.getReader();
       for(;;){
         const {value,done}=await reader.read();

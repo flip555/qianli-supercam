@@ -24,6 +24,7 @@
   #vwrap{position:absolute;overflow:hidden;background:#000;transform-origin:center center;
     transform:translate(var(--tx,0%),var(--ty,0%)) scale(var(--ts,1))}
   #vid{width:100%;height:100%;display:block;object-fit:fill}
+  #vidcanvas{width:100%;height:100%;display:none;background:#000}
   #thimg{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover}
   .stage.mode-video #thimg{display:none}
   .stage.mode-thermal #vid{visibility:hidden}
@@ -95,7 +96,8 @@
 </header>
 <main>
   <div class="stage mode-wipe" id="stage">
-    <div id="vwrap"><img id="vid" src="/video.mjpg" alt="visible stream" draggable="false"></div>
+    <div id="vwrap"><img id="vid" src="/video.mjpg" alt="visible stream" draggable="false">
+      <canvas id="vidcanvas"></canvas></div>
     <img id="thimg" src="/stream.mjpg" alt="thermal" draggable="false">
     <div class="wipebar" id="wipebar"></div>
     <div id="marks"></div>
@@ -182,8 +184,92 @@ function watch(img,src){
   setInterval(()=>{ const n=Date.now();
     if(n-last>6000){ last=n; img.src=src+'?t='+n; } },3000);
 }
-watch(vid,'/video.mjpg');
-watch(thimg,'/stream.mjpg');
+/* the visible feed is decoded in the browser when possible - that removes the
+   server-side h264->MJPEG transcode entirely (it was the biggest CPU cost).
+   Anything unsupported or unhappy falls back to the MJPEG <img>. Add ?mjpeg=1
+   to the URL to force the old path. */
+const vcanvas=document.getElementById('vidcanvas');
+const vctx=vcanvas.getContext('2d');
+let vcOn=false, vcDecoder=null, vcWatchdog=null, vcFallback=false;
+function mjpegFallback(){
+  if(vcFallback) return;
+  vcFallback=true; vcOn=false;
+  try{ if(vcDecoder) vcDecoder.close(); }catch(e){}
+  vcDecoder=null;
+  vcanvas.style.display='none'; vid.style.display='block';
+  watch(vid,'/video.mjpg');
+  console.warn('visible feed: using the MJPEG fallback');
+}
+function startVisibleCodec(){
+  let au=[], sps=null, ts=0, configured=false, buf=new Uint8Array(0), gotFrame=false;
+  const hex=(n)=>('0'+n.toString(16)).slice(-2);
+  function flushAU(){
+    if(!au.length || !sps) return;
+    if(!configured){
+      try{
+        vcDecoder=new VideoDecoder({
+          output:(f)=>{
+            if(!gotFrame){ gotFrame=true; clearTimeout(vcWatchdog); }
+            if(vcanvas.width!==f.displayWidth||vcanvas.height!==f.displayHeight){
+              vcanvas.width=f.displayWidth; vcanvas.height=f.displayHeight; layout();
+            }
+            try{ vctx.drawImage(f,0,0); }catch(e){}
+            f.close();
+          },
+          error:()=>mjpegFallback()
+        });
+        vcDecoder.configure({codec:'avc1.'+hex(sps[1])+hex(sps[2])+hex(sps[3]),optimizeForLatency:true});
+        configured=true;
+      }catch(e){ mjpegFallback(); return; }
+    }
+    let out=new Uint8Array(au.reduce((a,n)=>a+n.data.length,0)), o=0, key=false;
+    for(const n of au){ out.set(n.data,o); o+=n.data.length; if(n.type===5) key=true; }
+    au=[];
+    try{ vcDecoder.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp:ts,data:out})); ts+=66667; }catch(e){}
+  }
+  function feed(bytes){
+    const m=new Uint8Array(buf.length+bytes.length); m.set(buf); m.set(bytes,buf.length); buf=m;
+    let pos=0;
+    while(true){
+      let sc=0;
+      if(pos+4<=buf.length && buf[pos]===0 && buf[pos+1]===0 && buf[pos+2]===0 && buf[pos+3]===1) sc=4;
+      else if(pos+3<=buf.length && buf[pos]===0 && buf[pos+1]===0 && buf[pos+2]===1) sc=3;
+      if(!sc) break;
+      const hdr=buf[pos+sc], type=hdr&0x1f;
+      let j=pos+sc+1;
+      while(j+3<=buf.length){
+        if(buf[j]===0 && buf[j+1]===0 && (buf[j+2]===1 || (j+4<=buf.length && buf[j+2]===0 && buf[j+3]===1))) break;
+        j++;
+      }
+      if(j+3>buf.length) break;                       /* incomplete tail - wait */
+      const whole=buf.slice(pos,j);
+      if(type>=1 && type<=5 && au.some(n=>n.type>=1 && n.type<=5)) flushAU();
+      if(type===7) sps=buf.slice(pos+sc,j);
+      au.push({data:whole,type:type});
+      pos=j;
+    }
+    if(pos) buf=buf.slice(pos);
+    if(buf.length>2000000) buf=new Uint8Array(0);
+  }
+  (async()=>{
+    try{
+      const res=await fetch('/raw.h264',{cache:'no-store'});
+      if(!res.ok || !res.body) throw new Error('no raw stream');
+      vcanvas.style.display='block'; vid.style.display='none'; vcOn=true;
+      vcWatchdog=setTimeout(()=>{ if(!gotFrame) mjpegFallback(); }, 6000);
+      const reader=res.body.getReader();
+      for(;;){
+        const {value,done}=await reader.read();
+        if(done) break;
+        if(value && value.length) feed(value);
+        if(vcDecoder && vcDecoder.decodeQueueSize>24) await new Promise(r=>setTimeout(r,20));
+      }
+      mjpegFallback();
+    }catch(e){ mjpegFallback(); }
+  })();
+}
+if(('VideoDecoder' in window) && !/[?&]mjpeg=1/.test(location.search)) startVisibleCodec();
+else mjpegFallback();
 
 /* camera-up indicator: the relay's /health is authoritative, so a frozen view
    can no longer be mistaken for a dead camera (there is no beeper on ours) */
@@ -406,15 +492,17 @@ document.getElementById('snap').onclick=()=>{
   const cs=getComputedStyle(stage);
   const num=(k,d)=>{ const v=parseFloat(cs.getPropertyValue(k)); return isNaN(v)?d:v; };
   const mode=(stage.className.match(/mode-([a-z]+)/)||[])[1]||'pip';
-  const W=vid.naturalWidth||1280, H=vid.naturalHeight||720;
+  const src=(vcOn && vcanvas.width) ? vcanvas : vid;
+  const W=(src===vcanvas? vcanvas.width : (vid.naturalWidth||1280)),
+        H=(src===vcanvas? vcanvas.height: (vid.naturalHeight||720));
   const c=document.createElement('canvas'); c.width=W; c.height=H;
   const g=c.getContext('2d');
   g.fillStyle='#000'; g.fillRect(0,0,W,H);
   /* visible layer, with the calibration transform (#vwrap's translate/scale) */
-  if(mode!=='thermal' && vid.naturalWidth){
+  if(mode!=='thermal' && src){
     const ts=num('--ts',1), tx=num('--tx',0)/100*W, ty=num('--ty',0)/100*H;
     g.save(); g.translate(W/2+tx,H/2+ty); g.scale(ts,ts);
-    g.drawImage(vid,-W/2,-H/2,W,H); g.restore();
+    g.drawImage(src,-W/2,-H/2,W,H); g.restore();
   }
   /* thermal layer, mirroring each mode's CSS */
   const tw=thimg.naturalWidth||160, th=thimg.naturalHeight||120;

@@ -193,7 +193,7 @@ function watch(img,src){
 const vcanvas=document.getElementById('vidcanvas');
 const vctx=vcanvas.getContext('2d');
 let vcOn=false, vcDecoder=null, vcWatchdog=null, vcFallback=false, vcLastFrame=0;
-function mjpegFallback(){
+function mjpegFallback(reason){
   if(vcFallback) return;
   vcFallback=true; vcOn=false;
   try{ if(vcDecoder) vcDecoder.close(); }catch(e){}
@@ -201,9 +201,9 @@ function mjpegFallback(){
   vcanvas.style.display='none'; vid.style.display='block';
   if(!vid.getAttribute('src')) vid.src='/video.mjpg';
   watch(vid,'/video.mjpg');
-  const why = ('VideoDecoder' in window) ? 'no WebCodecs in this browser'
-            : (window.isSecureContext ? 'WebCodecs unavailable'
-               : 'WebCodecs needs a secure context - open this over https (or localhost)');
+  const why = reason || (('VideoDecoder' in window) ? 'the decoder gave up'
+            : (window.isSecureContext ? 'this browser has no WebCodecs'
+               : 'WebCodecs needs a secure context - open this over https'));
   const fm=document.getElementById('feedmode');
   if(fm){ fm.textContent='mjpeg'; fm.title='visible feed: MJPEG from the relay - '+why; }
   console.warn('visible feed: MJPEG fallback - '+why);
@@ -232,7 +232,7 @@ function startVisibleCodec(){
             try{ vctx.drawImage(f,0,0); }catch(e){}
             f.close();
           },
-          error:()=>mjpegFallback()
+          error:()=>mjpegFallback('decoder error')
         });
         const cs='avc1.'+hex(sps[1])+hex(sps[2])+hex(sps[3]);
         vcDecoder.configure({codec:cs,optimizeForLatency:true});
@@ -261,6 +261,8 @@ function startVisibleCodec(){
       }
       if(j+3>buf.length) break;                       /* incomplete tail - wait */
       const whole=buf.slice(pos,j);
+      const std=(type===1||type===5||type===6||type===7||type===8||type===9);
+      if(!std){ pos=j; continue; }          /* drop the camera's private NAL types */
       if(type>=1 && type<=5 && au.some(n=>n.type>=1 && n.type<=5)) flushAU();
       if(type===7) sps=buf.slice(pos+sc,j);
       au.push({data:whole,type:type});
@@ -274,7 +276,7 @@ function startVisibleCodec(){
       const res=await fetch('/raw.h264',{cache:'no-store'});
       if(!res.ok || !res.body) throw new Error('no raw stream');
       vcanvas.style.display='block'; vid.style.display='none'; vcOn=true;
-      vcWatchdog=setTimeout(()=>{ if(!gotFrame) mjpegFallback(); }, 10000);
+      vcWatchdog=setTimeout(()=>{ if(!gotFrame) mjpegFallback('no decodable frame within 10s'); }, 10000);
       const reader=res.body.getReader();
       for(;;){
         const {value,done}=await reader.read();
@@ -283,12 +285,12 @@ function startVisibleCodec(){
         if(vcDecoder && vcDecoder.decodeQueueSize>24) await new Promise(r=>setTimeout(r,20));
       }
       mjpegFallback();
-    }catch(e){ mjpegFallback(); }
+    }catch(e){ mjpegFallback('could not open /raw.h264'); }
   })();
 }
 if(('VideoDecoder' in window) && !/[?&]mjpeg=1/.test(location.search)) startVisibleCodec();
 else mjpegFallback();
-setInterval(()=>{ if(vcOn && !vcFallback && vcLastFrame && Date.now()-vcLastFrame>6000) mjpegFallback(); }, 2000);
+setInterval(()=>{ if(vcOn && !vcFallback && vcLastFrame && Date.now()-vcLastFrame>6000) mjpegFallback('decoded feed stalled'); }, 2000);
 
 /* camera-up indicator: the relay's /health is authoritative, so a frozen view
    can no longer be mistaken for a dead camera (there is no beeper on ours) */

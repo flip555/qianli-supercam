@@ -147,12 +147,13 @@
     <div class="row"><label for="cammask">Netmask</label><input id="cammask" placeholder="255.255.255.0"></div>
     <div class="row"><label for="camgw">Gateway</label><input id="camgw" placeholder="0.0.0.0"></div>
     <div class="row"><label for="camdns">DNS</label><input id="camdns" placeholder="0.0.0.0"></div>
-    <div class="warn">The camera <b>reboots</b> to apply a network change, so the live view drops for
-      roughly 30 seconds. This relay will rediscover it automatically.</div>
+    <p class="sub">Saving writes the settings to the camera. <b>They only take hold after a reboot</b> \u2014
+      use <i>Reboot camera</i> below.</p>
     <div id="camstatus" class="ok"></div>
     <div class="actions">
       <button id="camcancel" class="ghost">Cancel</button>
-      <button id="camapply">Apply to camera</button>
+      <button id="camreboot" class="ghost">Reboot camera</button>
+      <button id="camapply">Save to camera</button>
     </div>
   </div>
 </div>
@@ -314,6 +315,17 @@ function openCam(){
 }
 document.getElementById('cog').onclick=openCam;
 document.getElementById('camcancel').onclick=()=>modal.hidden=true;
+document.getElementById('camreboot').onclick=async()=>{
+  const st=document.getElementById('camstatus');
+  if(!confirm('Reboot the camera now?\n\nIt drops off the network for around 30 seconds, comes back on its stored address, and this relay reconnects by itself.')) return;
+  st.className=''; st.textContent='rebooting\u2026';
+  try{
+    const r=await fetch('/reboot',{method:'POST'}); const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'reboot failed');
+    st.className='ok';
+    st.textContent='Reboot sent \u2014 the camera restarts and the view returns shortly.';
+  }catch(e){ st.className='err'; st.textContent='Reboot failed: '+e.message; }
+};
 document.getElementById('camapply').onclick=async()=>{
   const st=document.getElementById('camstatus');
   const body={ip:document.getElementById('camip').value.trim(),
@@ -330,7 +342,7 @@ document.getElementById('camapply').onclick=async()=>{
     const d=j.detail||{};
     if(j.ok){
       st.className='ok';
-      st.textContent='Applied \u2014 the camera is now at '+j.requested+'. It reboots; the view returns shortly.';
+      st.textContent='Saved \u2014 the camera now holds '+j.requested+'. Reboot it for this to take hold.';
     } else {
       let why = d.attempts ? d.attempts.map(a=>'socket '+a.socket[0]+': '+(a.result||'')+(a.after?(' -> '+a.after):'')+(a.after_error?(' / '+a.after_error):'')).join('; ') : (j.error||'');
       st.className='err';

@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from supercam.client import SuperCam, keepalive, load  # handshake + packet builders
 from supercam import thermal as TH
 from supercam import settings as CFG
+from supercam import reboot as REBOOT
 from PIL import Image
 
 HOST = os.environ.get("CAMERA_HOST", "auto")      # "auto" = discover on the LAN
@@ -538,6 +539,24 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif p == "/reboot":
+            import json
+            if self.command != "POST":
+                out = json.dumps({"ok": False, "error": "POST only"}).encode()
+                self.send_response(405)
+            else:
+                host = _client.host if _client else None
+                if not host:
+                    out = json.dumps({"ok": False, "error": "camera not connected"}).encode()
+                    self.send_response(503)
+                else:
+                    res = REBOOT.reboot(host)
+                    out = json.dumps(res).encode()
+                    self.send_response(200 if res.get("ok") else 502)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
         elif p == "/camera":
             import json
             if self.command == "POST":

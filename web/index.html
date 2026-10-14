@@ -213,14 +213,24 @@ function mjpegFallback(reason){
   report('fallback: '+why);
 }
 function startVisibleCodec(){
-  let au=[], sps=null, ts=0, configured=false, buf=new Uint8Array(0), gotFrame=false;
+  let au=[], spsNal=null, ppsNal=null, ts=0, configured=false, buf=new Uint8Array(0), gotFrame=false;
   const hex=(n)=>('0'+n.toString(16)).slice(-2);
   function flushAU(){
     if(!au.length) return;
-    const isKey=au.some(n=>n.type===5), hasSps=au.some(n=>n.type===7);
-    if(!configured && !(isKey && hasSps)){ au=[]; return; }   /* start only at a keyframe with SPS */
-    if(!configured){
-      if(!sps){ au=[]; return; }
+    const isKey=au.some(n=>n.type===5), first=!configured;
+    /* The camera sends SPS/PPS *after* the previous picture's slice, so they land
+       in the wrong access unit - rely on the last ones seen instead of requiring
+       them inside this AU. */
+    if(first && !(isKey && spsNal && ppsNal)){ au=[]; return; }
+    const sc=(n)=>(n[2]===1?3:4);
+    let parts=au.map(x=>x.data);
+    if(first) parts=[spsNal,ppsNal].concat(parts);     /* parameter sets must precede the IDR */
+    let out=new Uint8Array(parts.reduce((a,d)=>a+d.length,0)), o=0, key=false;
+    for(const d of parts){ out.set(d,o); o+=d.length; }
+    for(const n of au) if(n.type===5) key=true;
+    au=[]; vcAUs++; vcLastAU=out.length;
+    if(first){
+      const sp=spsNal.slice(sc(spsNal));               /* SPS payload: profile/constraints/level */
       try{
         vcDecoder=new VideoDecoder({
           output:(f)=>{
@@ -228,8 +238,8 @@ function startVisibleCodec(){
             if(!gotFrame){ gotFrame=true; clearTimeout(vcWatchdog);
               const fm=document.getElementById('feedmode');
               if(fm){ fm.textContent='codec'; fm.title='visible feed: decoded in this browser (no transcoding on the relay)'; }
-              if(vid.getAttribute('src')) vid.removeAttribute('src');   /* stop the MJPEG stream */
-              report('decoding ok: '+cs+' '+f.displayWidth+'x'+f.displayHeight);
+              if(vid.getAttribute('src')) vid.removeAttribute('src');
+              report('decoding ok: '+sp[1].toString(16)+'/'+sp[3].toString(16)+' '+f.displayWidth+'x'+f.displayHeight);
             }
             if(vcanvas.width!==f.displayWidth||vcanvas.height!==f.displayHeight){
               vcanvas.width=f.displayWidth; vcanvas.height=f.displayHeight; layout();
@@ -239,22 +249,18 @@ function startVisibleCodec(){
           },
           error:(e)=>{ report('decoder error: '+((e&&e.message)||e||'?')); mjpegFallback('decoder error'); }
         });
-        const cs='avc1.'+hex(sps[1])+hex(sps[2])+hex(sps[3]);
+        const cs='avc1.'+hex(sp[1])+hex(sp[2])+hex(sp[3]);
         vcDecoder.configure({codec:cs,optimizeForLatency:true});
-        console.info('visible feed: WebCodecs decoding', cs);
-        report('configured: '+cs+' keyAU='+au.length+'NALs');
         configured=true;
-      }catch(e){ report('configure threw: '+((e&&e.message)||e)); mjpegFallback(); return; }
+        report('configured '+cs+' firstAU='+out.length+'B');
+      }catch(e){ report('configure threw: '+((e&&e.message)||e)); mjpegFallback('configure failed'); return; }
     }
-    let out=new Uint8Array(au.reduce((a,n)=>a+n.data.length,0)), o=0, key=false;
-    for(const n of au){ out.set(n.data,o); o+=n.data.length; if(n.type===5) key=true; }
-    au=[];
-    vcAUs++; vcLastAU=out.length;
     try{
       vcDecoder.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp:ts,data:out}));
       vcFed++; ts+=66667;
-    }catch(e){ if(vcErrs++ < 3) report('decode() threw: '+((e&&e.message)||e)); }
+    }catch(e){ if(vcErrs++<3) report('decode() threw: '+((e&&e.message)||e)); }
   }
+
   function feed(bytes){
     const m=new Uint8Array(buf.length+bytes.length); m.set(buf); m.set(bytes,buf.length); buf=m;
     /* the relay starts mid-NAL, so skip forward to the first start code first -
@@ -280,7 +286,8 @@ function startVisibleCodec(){
       const std=(type===1||type===5||type===6||type===7||type===8||type===9);
       if(!std){ pos=j; continue; }          /* drop the camera's private NAL types */
       if(type>=1 && type<=5 && au.some(n=>n.type>=1 && n.type<=5)) flushAU();
-      if(type===7) sps=buf.slice(pos+sc,j);
+      if(type===7) spsNal=buf.slice(pos,j);
+      if(type===8) ppsNal=buf.slice(pos,j);
       au.push({data:whole,type:type});
       pos=j;
     }
@@ -314,7 +321,7 @@ setInterval(()=>{ if(vcOn && !vcFallback && vcLastFrame && Date.now()-vcLastFram
 setInterval(()=>{ if(vcOn && !vcFallback && !vcLastFrame)
   report('probe: state='+(vcDecoder?vcDecoder.state:'none')+' fed='+vcFed+
          ' queue='+(vcDecoder?vcDecoder.decodeQueueSize:'-')+' AUs='+vcAUs+
-         ' lastAU='+vcLastAU+'B errs='+vcErrs); }, 3000);
+         ' lastAU='+vcLastAU+'B errs='+vcErrs+' ps='+(spsNal?'y':'n')+(ppsNal?'y':'n')); }, 3000);
 
 /* camera-up indicator: the relay's /health is authoritative, so a frozen view
    can no longer be mistaken for a dead camera (there is no beeper on ours) */

@@ -104,6 +104,25 @@ timestamped backup of the current deployment beside it, installs the new files
 restarts. A bad release can be rolled back by hand from the `.bak-<timestamp>`
 directory.
 
+## Translations
+
+The GUI is translated from **`web/i18n/<lang>.json`** — one flat JSON file per
+language, fetched at runtime, no build step. The picker in the footer remembers your
+choice; on a first visit it follows the browser's own language.
+
+Currently shipped: **English, Spanish, French, German, Portuguese**. The non-English
+files were drafted with AI and are genuinely open to correction — if a phrase reads
+wrongly to you, that is a useful contribution, not a nitpick.
+
+Adding a language is one file plus a line in `LANGS` (in `web/index.html`):
+
+```bash
+cp web/i18n/en.json web/i18n/xx.json    # translate the values, keep the keys
+```
+
+Keys must match `en.json`; anything a translation omits falls back to the key name,
+so a partial translation degrades rather than breaking.
+
 ## Contributing
 
 Issues and pull requests are welcome — particularly notes or captures from other

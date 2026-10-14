@@ -21,6 +21,8 @@
   footer.foot a{color:#8b949e;text-decoration:none}
   footer.foot a:hover{color:#e6e8eb;text-decoration:underline}
   footer.foot .grow{margin-left:auto}
+  footer.foot label{color:#8b949e;font-size:12px}
+  footer.foot select{padding:3px 6px;font-size:12px}
   .meta{margin-left:auto;color:#8b949e;font-variant-numeric:tabular-nums}
   main{padding:16px;max-width:1400px;margin:0 auto}
   .stage{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:16/9;
@@ -96,16 +98,16 @@
 <body>
 <header>
   <span class="dot" id="dot"></span>
-  <h1>SuperCam &mdash; live</h1>
-  <span class="meta" id="meta">connecting&hellip;</span>
+  <h1 data-i18n="app.title">SuperCam &mdash; live</h1>
+  <span class="meta" id="meta" data-i18n="status.connecting">connecting&hellip;</span>
   <span class="ver" id="ver"></span>
   <span class="feedmode" id="feedmode"></span>
 </header>
 <main>
   <div class="stage mode-wipe" id="stage">
-    <div id="vwrap"><img id="vid" src="/video.mjpg" alt="visible stream" draggable="false">
+    <div id="vwrap"><img id="vid" src="/video.mjpg" data-i18n-alt="img.visible" alt="visible stream" draggable="false">
       <canvas id="vidcanvas"></canvas></div>
-    <img id="thimg" src="/stream.mjpg" alt="thermal" draggable="false">
+    <img id="thimg" src="/stream.mjpg" data-i18n-alt="img.thermal" alt="thermal" draggable="false">
     <div class="wipebar" id="wipebar"></div>
     <div id="marks"></div>
     <div class="readout" id="readout">&mdash;</div>
@@ -113,57 +115,59 @@
 
   <div class="bar">
     <div class="seg" id="modes">
-      <button data-mode="pip">PiP</button>
-      <button data-mode="wipe" class="on">Wipe</button>
-      <button data-mode="thermal">Thermal</button>
-      <button data-mode="video">Video</button>
+      <button data-mode="pip" data-i18n="mode.pip">PiP</button>
+      <button data-mode="wipe" class="on" data-i18n="mode.wipe">Wipe</button>
+      <button data-mode="thermal" data-i18n="mode.thermal">Thermal</button>
+      <button data-mode="video" data-i18n="mode.video">Video</button>
     </div>
-    <button id="size">PiP: med</button>
+    <button id="size" data-i18n="pip.med">PiP: med</button>
     <select id="pal">
-      <option value="rainbow" selected>rainbow</option>
-      <option value="ironbow">ironbow</option>
-      <option value="whitehot">white hot</option>
-      <option value="blackhot">black hot</option>
+      <option value="rainbow" selected data-i18n="palette.rainbow">rainbow</option>
+      <option value="ironbow" data-i18n="palette.ironbow">ironbow</option>
+      <option value="whitehot" data-i18n="palette.whitehot">white hot</option>
+      <option value="blackhot" data-i18n="palette.blackhot">black hot</option>
     </select>
-    <span id="wipewrap"><label for="wipe">Split</label>
+    <span id="wipewrap"><label for="wipe" data-i18n="label.split">Split</label>
       <input type="range" id="wipe" min="0" max="100" value="50"></span>
     <span id="calwrap">
-      <label for="ts">Video scale</label><input type="range" id="ts" min="0.5" max="4" step="0.01" value="1">
-      <label for="tx">X</label><input type="range" id="tx" min="-60" max="60" step="0.5" value="0">
-      <label for="ty">Y</label><input type="range" id="ty" min="-60" max="60" step="0.5" value="0">
-      <button id="calreset">Centre</button>
-      <button id="calsave">Save as default</button>
+      <label for="ts" data-i18n="label.videoScale">Video scale</label><input type="range" id="ts" min="0.5" max="4" step="0.01" value="1">
+      <label for="tx" data-i18n="label.x">X</label><input type="range" id="tx" min="-60" max="60" step="0.5" value="0">
+      <label for="ty" data-i18n="label.y">Y</label><input type="range" id="ty" min="-60" max="60" step="0.5" value="0">
+      <button id="calreset" data-i18n="btn.centre">Centre</button>
+      <button id="calsave" data-i18n="btn.saveDefault">Save as default</button>
     </span>
-    <button id="snap">Snapshot</button>
-    <button id="cog" title="Camera network settings">&#9881; Camera</button>
+    <button id="snap" data-i18n="btn.snapshot">Snapshot</button>
+    <button id="cog" data-i18n="btn.camera" data-i18n-title="btn.camera.title">&#9881; Camera</button>
   </div>
-  <p class="note">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
+  <p class="note" data-i18n="note.text">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
   Wipe is the default view; the thermal never moves &mdash; calibration adjusts the video layer.</p>
   <footer class="foot">
-    <a href="https://github.com/flip555/qianli-supercam" target="_blank" rel="noopener">GitHub</a>
-    <a href="https://github.com/flip555/qianli-supercam/releases" target="_blank" rel="noopener">releases</a>
+    <a href="https://github.com/flip555/qianli-supercam" target="_blank" rel="noopener" data-i18n="footer.github">GitHub</a>
+    <a href="https://github.com/flip555/qianli-supercam/releases" target="_blank" rel="noopener" data-i18n="footer.releases">releases</a>
     <span class="grow"></span>
+    <label for="lang" data-i18n="footer.language">Language</label>
+    <select id="lang"></select>
     <span id="footver"></span>
   </footer>
 </main>
 
 <div id="camModal" class="modal" hidden>
   <div class="sheet">
-    <h2>Camera network settings</h2>
-    <p class="sub">Read and written directly to the camera over its control port.</p>
-    <div class="kv" id="camkv"><b>status</b><span>reading&hellip;</span></div>
-    <div class="row"><label for="camname">Name</label><input id="camname" readonly></div>
-    <div class="row"><label for="camip">IP address</label><input id="camip" placeholder="192.168.1.85"></div>
-    <div class="row"><label for="cammask">Netmask</label><input id="cammask" placeholder="255.255.255.0"></div>
-    <div class="row"><label for="camgw">Gateway</label><input id="camgw" placeholder="0.0.0.0"></div>
-    <div class="row"><label for="camdns">DNS</label><input id="camdns" placeholder="0.0.0.0"></div>
-    <p class="sub">Saving writes the settings to the camera. <b>They only take hold after a reboot</b> \u2014
+    <h2 data-i18n="cam.title">Camera network settings</h2>
+    <p class="sub" data-i18n="cam.sub">Read and written directly to the camera over its control port.</p>
+    <div class="kv" id="camkv"></div>
+    <div class="row"><label for="camname" data-i18n="cam.name">Name</label><input id="camname" readonly></div>
+    <div class="row"><label for="camip" data-i18n="cam.ip">IP address</label><input id="camip" placeholder="192.168.1.85"></div>
+    <div class="row"><label for="cammask" data-i18n="cam.mask">Netmask</label><input id="cammask" placeholder="255.255.255.0"></div>
+    <div class="row"><label for="camgw" data-i18n="cam.gw">Gateway</label><input id="camgw" placeholder="0.0.0.0"></div>
+    <div class="row"><label for="camdns" data-i18n="cam.dns">DNS</label><input id="camdns" placeholder="0.0.0.0"></div>
+    <p class="sub" data-i18n="cam.note">Saving writes the settings to the camera. <b>They only take hold after a reboot</b> \u2014
       use <i>Reboot camera</i> below.</p>
     <div id="camstatus" class="ok"></div>
     <div class="actions">
-      <button id="camcancel" class="ghost">Cancel</button>
-      <button id="camreboot" class="ghost">Reboot camera</button>
-      <button id="camapply">Save to camera</button>
+      <button id="camcancel" class="ghost" data-i18n="btn.cancel">Cancel</button>
+      <button id="camreboot" class="ghost" data-i18n="btn.reboot">Reboot camera</button>
+      <button id="camapply" data-i18n="btn.apply">Save to camera</button>
     </div>
   </div>
 </div>
@@ -171,6 +175,38 @@
 const stage=document.getElementById('stage'), vid=document.getElementById('vid'),
       vwrap=document.getElementById('vwrap'), thimg=document.getElementById('thimg'),
       mimg=vid, cv=null, dot=document.getElementById('dot'), meta=document.getElementById('meta');
+
+/* ---- translations: one JSON file per language in web/i18n/ ---- */
+let I18N={}, LANG='en';
+const LANGS=[['en','English'],['es','Espa\u00f1ol'],['fr','Fran\u00e7ais'],['de','Deutsch'],['pt','Portugu\u00eas']];
+function t(key,vars){
+  let s=(I18N[key]!=null)?I18N[key]:key;
+  if(vars) for(const k in vars) s=s.split('{'+k+'}').join(vars[k]);
+  return s;
+}
+function applyI18N(){
+  document.documentElement.lang=LANG;
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent=t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-title]').forEach(el=>{ el.title=t(el.dataset.i18nTitle); });
+  document.querySelectorAll('[data-i18n-alt]').forEach(el=>{ el.alt=t(el.dataset.i18nAlt); });
+  try{ const sz=document.getElementById('size'); if(sz) sz.textContent=t('pip.'+pi); }catch(e){}
+  const kv=document.getElementById('camkv');
+  if(kv && !kv.dataset.filled) kv.innerHTML='<b>'+t('cam.status')+'</b><span>'+t('cam.reading')+'</span>';
+}
+async function loadLang(lang){
+  LANG=lang;
+  try{ const r=await fetch('/i18n/'+lang+'.json',{cache:'no-store'});
+       I18N = r.ok ? await r.json() : {}; }catch(e){ I18N={}; }
+  applyI18N();
+}
+(function langPicker(){
+  const sel=document.getElementById('lang'); if(!sel) return;
+  sel.innerHTML=LANGS.map(l=>'<option value="'+l[0]+'">'+l[1]+'</option>').join('');
+  let saved=null; try{ saved=localStorage.getItem('supercam.lang'); }catch(e){}
+  const nav=(navigator.language||'en').slice(0,2).toLowerCase();
+  sel.value = saved || (LANGS.some(l=>l[0]===nav) ? nav : 'en');
+  sel.onchange=()=>{ try{ localStorage.setItem('supercam.lang',sel.value); }catch(e){} loadLang(sel.value); };
+})();
 
 /* keep the video layer on its own aspect, centred (makes calibration size-invariant) */
 function layout(){
@@ -215,11 +251,10 @@ function mjpegFallback(reason){
   vcanvas.style.display='none'; vid.style.display='block';
   if(!vid.getAttribute('src')) vid.src='/video.mjpg';
   watch(vid,'/video.mjpg');
-  const why = reason || (('VideoDecoder' in window) ? 'the decoder gave up'
-            : (window.isSecureContext ? 'this browser has no WebCodecs'
-               : 'WebCodecs needs a secure context - open this over https'));
+  const why = reason || (('VideoDecoder' in window) ? t('why.decoder')
+            : (window.isSecureContext ? t('why.noWebCodecs') : t('why.insecure')));
   const fm=document.getElementById('feedmode');
-  if(fm){ fm.textContent='mjpeg'; fm.title='visible feed: MJPEG from the relay - '+why; }
+  if(fm){ fm.textContent=t('feed.mjpeg'); fm.title=t('feed.mjpeg.title',{why:why}); }
   console.warn('visible feed: MJPEG fallback - '+why);
 }
 function startVisibleCodec(){
@@ -247,7 +282,7 @@ function startVisibleCodec(){
             vcLastFrame=Date.now();
             if(!gotFrame){ gotFrame=true; clearTimeout(vcWatchdog);
               const fm=document.getElementById('feedmode');
-              if(fm){ fm.textContent='codec'; fm.title='visible feed: decoded in this browser (no transcoding on the relay)'; }
+              if(fm){ fm.textContent=t('feed.codec'); fm.title=t('feed.codec.title'); }
               if(vid.getAttribute('src')) vid.removeAttribute('src');
             }
             if(vcanvas.width!==f.displayWidth||vcanvas.height!==f.displayHeight){
@@ -256,12 +291,12 @@ function startVisibleCodec(){
             try{ vctx.drawImage(f,0,0); }catch(e){}
             f.close();
           },
-          error:(e)=>{ mjpegFallback('decoder error'); }
+          error:(e)=>{ mjpegFallback(t('why.decoderError')); }
         });
         const cs='avc1.'+hex(sp[1])+hex(sp[2])+hex(sp[3]);
         vcDecoder.configure({codec:cs,optimizeForLatency:true});
         configured=true;
-      }catch(e){ mjpegFallback('configure failed'); return; }
+      }catch(e){ mjpegFallback(t('why.configureFailed')); return; }
     }
     try{
       vcDecoder.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp:ts,data:out}));
@@ -316,7 +351,7 @@ function startVisibleCodec(){
         if(vcDecoder && vcDecoder.decodeQueueSize>24) await new Promise(r=>setTimeout(r,20));
       }
       mjpegFallback();
-    }catch(e){ mjpegFallback('could not open /raw.h264'); }
+    }catch(e){ mjpegFallback(t('why.noRaw')); }
   })();
 }
 if(('VideoDecoder' in window) && !/[?&]mjpeg=1/.test(location.search)) startVisibleCodec();
@@ -326,8 +361,8 @@ else mjpegFallback();
 setInterval(()=>{
   if(!vcOn || vcFallback || document.hidden) return;
   const now=Date.now();
-  if(vcLastFrame && now-vcLastFrame>6000) mjpegFallback('decoded feed stalled');
-  else if(!vcLastFrame && vcStart && now-vcStart>10000) mjpegFallback('no decodable frame within 10s');
+  if(vcLastFrame && now-vcLastFrame>6000) mjpegFallback(t('why.stalled'));
+  else if(!vcLastFrame && vcStart && now-vcStart>10000) mjpegFallback(t('why.noFrame'));
 }, 2000);
 
 /* Coming back to the tab: if we had been pushed onto the MJPEG fallback, try the
@@ -351,10 +386,10 @@ async function pollStatus(){
     const now=Date.now(), advanced=(_lastFrames!==null && j.frames>_lastFrames);
     if(_lastFrames===null || advanced) _lastAdvance=now;
     _lastFrames=j.frames;
-    if(j.connected && now-_lastAdvance<5000){ dot.className='dot on';   meta.textContent='live'; }
-    else if(j.connected)                    { dot.className='dot warn'; meta.textContent='connected, no frames'; }
-    else                                    { dot.className='dot';      meta.textContent='searching for the camera\u2026'; }
-  }catch(e){ dot.className='dot'; meta.textContent='relay unreachable'; }
+    if(j.connected && now-_lastAdvance<5000){ dot.className='dot on';   meta.textContent=t('status.live'); }
+    else if(j.connected)                    { dot.className='dot warn'; meta.textContent=t('status.noFrames'); }
+    else                                    { dot.className='dot';      meta.textContent=t('status.searching'); }
+  }catch(e){ dot.className='dot'; meta.textContent=t('status.relayDown'); }
 }
 setInterval(pollStatus,3000); pollStatus();
 
@@ -371,7 +406,7 @@ async function checkUpdate(){
     const j=await (await fetch('/update',{cache:'no-store'})).json();
     if(!j.ok || !j.available) return;
     REL=j;
-    verEl.textContent='v'+j.current+' \u2192 '+j.latest;
+    verEl.textContent=t('update.link',{from:'v'+j.current,to:j.latest});
     verEl.title=(j.notes||'').slice(0,600);
     verEl.classList.add('update');
     verEl.onclick=doUpdate;
@@ -379,16 +414,16 @@ async function checkUpdate(){
 }
 async function doUpdate(){
   if(!REL) return;
-  if(!confirm('Update to '+REL.latest+'?\n\nThe relay downloads that release, keeps a backup of the current one, then restarts itself.')) return;
-  verEl.textContent='updating\u2026'; verEl.classList.remove('update');
+  if(!confirm(t('update.confirm',{to:REL.latest}))) return;
+  verEl.textContent=t('update.running'); verEl.classList.remove('update');
   try{ await fetch('/update',{method:'POST'}); }catch(e){}
   const t0=Date.now();
   const t=setInterval(async()=>{
     try{
       const v=await (await fetch('/version',{cache:'no-store'})).json();
-      if(v.version!==REL.current){ clearInterval(t); verEl.textContent='v'+v.version+' \u2014 reloading'; setTimeout(()=>location.reload(),800); }
+      if(v.version!==REL.current){ clearInterval(t); verEl.textContent=t('update.reloading',{v:'v'+v.version}); setTimeout(()=>location.reload(),800); }
     }catch(e){}
-    if(Date.now()-t0>150000){ clearInterval(t); verEl.textContent='v+update?'; verEl.title='the relay did not come back on a new version'; }
+    if(Date.now()-t0>150000){ clearInterval(t); verEl.textContent=t('update.failed'); verEl.title=t('update.failed.title'); }
   },3000);
 }
 checkVersion();
@@ -409,7 +444,7 @@ document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>setMode(b.da
 document.getElementById('size').onclick=e=>{
   pi=order[(order.indexOf(pi)+1)%order.length];
   stage.style.setProperty('--pipw',pipw[pi]);
-  e.target.textContent='PiP: '+({s:'sm',m:'med',l:'lg'})[pi];
+  e.target.textContent=t('pip.'+pi);
 };
 const palsel=document.getElementById('pal');
 palsel.onchange=()=>fetch('/palette?name='+encodeURIComponent(palsel.value))
@@ -454,7 +489,7 @@ tx.oninput=e=>{CAL.tx=+e.target.value; applyCal(); saveSoon();};
 ty.oninput=e=>{CAL.ty=+e.target.value; applyCal(); saveSoon();};
 document.getElementById('calreset').onclick=()=>{CAL.ts=1;CAL.tx=0;CAL.ty=0;applyCal();saveSoon();};
 document.getElementById('calsave').onclick=e=>{ saveCal();
-  e.target.textContent='Saved ✓'; setTimeout(()=>e.target.textContent='Save as default',1500); };
+  e.target.textContent=t('btn.saved'); setTimeout(()=>e.target.textContent=t('btn.saveDefault'),1500); };
 (async()=>{
   let srv={ts:1,tx:0,ty:0}, ls=null;
   try{ srv=await (await fetch('/calibration',{cache:'no-store'})).json(); }catch(e){}
@@ -489,11 +524,11 @@ function tick(){
   fetch('/thermal.json',{cache:'no-store'}).then(r=>r.json()).then(j=>{
     const s=j.stats;
     if(s){
-      document.getElementById('readout').innerHTML='<b>'+s.max_c.toFixed(1)+'&deg;C</b> max &nbsp; '+
-        s.mean_c.toFixed(1)+'&deg;C avg &nbsp; '+s.min_c.toFixed(1)+'&deg;C min';
+      document.getElementById('readout').innerHTML=t('readout.line',
+        {max:s.max_c.toFixed(1),avg:s.mean_c.toFixed(1),min:s.min_c.toFixed(1)});
       lastStats=s; renderMarks(s);
     }
-  }).catch(()=>{ meta.textContent='no status'; });
+  }).catch(()=>{ meta.textContent=t('status.noStatus'); });
 }
 tick(); setInterval(tick,1000);
 
@@ -502,33 +537,33 @@ let CAM=null;
 const modal=document.getElementById('camModal');
 function openCam(){
   modal.hidden=false;
-  const kv=document.getElementById('camkv'); kv.innerHTML='<b>status</b><span>reading\u2026</span>';
+  const kv=document.getElementById('camkv'); kv.innerHTML='<b>'+t('cam.status')+'</b><span>'+t('cam.reading')+'</span>'; kv.dataset.filled='1';
   document.getElementById('camstatus').textContent='';
   fetch('/camera',{cache:'no-store'}).then(r=>r.json()).then(j=>{
     if(!j.ok) throw new Error(j.error||'cannot read settings');
     CAM=j;
-    kv.innerHTML='<b>name</b><span>'+(j.name||'-')+'</span>'+
-                 '<b>firmware</b><span>'+(j.firmware||'-')+'</span>'+
-                 '<b>current</b><span>'+(j.ip||'-')+' / '+(j.mask||'-')+'</span>';
+    kv.innerHTML='<b>'+t('cam.name')+'</b><span>'+(j.name||'-')+'</span>'+
+                 '<b>'+t('cam.firmware')+'</b><span>'+(j.firmware||'-')+'</span>'+
+                 '<b>'+t('cam.current')+'</b><span>'+(j.ip||'-')+' / '+(j.mask||'-')+'</span>';
     document.getElementById('camname').value=j.name||'';
     document.getElementById('camip').value=j.ip||'';
     document.getElementById('cammask').value=j.mask||'';
     document.getElementById('camgw').value=j.gw||'';
     document.getElementById('camdns').value=j.dns||'';
-  }).catch(e=>{ kv.innerHTML='<b>status</b><span>'+e.message+'</span>'; });
+  }).catch(e=>{ kv.innerHTML='<b>'+t('cam.status')+'</b><span>'+e.message+'</span>'; });
 }
 document.getElementById('cog').onclick=openCam;
 document.getElementById('camcancel').onclick=()=>modal.hidden=true;
 document.getElementById('camreboot').onclick=async()=>{
   const st=document.getElementById('camstatus');
-  if(!confirm('Reboot the camera now?\n\nIt drops off the network for around 30 seconds, comes back on its stored address, and this relay reconnects by itself.')) return;
-  st.className=''; st.textContent='rebooting\u2026';
+  if(!confirm(t('cam.rebootConfirm'))) return;
+  st.className=''; st.textContent=t('cam.rebooting');
   try{
     const r=await fetch('/reboot',{method:'POST'}); const j=await r.json();
     if(!j.ok) throw new Error(j.error||'reboot failed');
     st.className='ok';
-    st.textContent='Reboot sent \u2014 the camera restarts and the view returns shortly.';
-  }catch(e){ st.className='err'; st.textContent='Reboot failed: '+e.message; }
+    st.textContent=t('cam.rebootSent');
+  }catch(e){ st.className='err'; st.textContent=t('cam.rebootFailed',{e:e.message}); }
 };
 document.getElementById('camapply').onclick=async()=>{
   const st=document.getElementById('camstatus');
@@ -536,8 +571,8 @@ document.getElementById('camapply').onclick=async()=>{
               mask:document.getElementById('cammask').value.trim(),
               gw:document.getElementById('camgw').value.trim(),
               dns:document.getElementById('camdns').value.trim()};
-  if(!confirm('Write '+body.ip+' to the camera?\n\nThe camera reboots and the live view will drop for ~30s.')) return;
-  st.className=''; st.textContent='writing\u2026';
+  if(!confirm(t('cam.writeConfirm',{ip:body.ip}))) return;
+  st.className=''; st.textContent=t('cam.writing');
   const ac=new AbortController(); const to=setTimeout(()=>ac.abort(), 12000);
   try{
     const r=await fetch('/camera',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -546,15 +581,15 @@ document.getElementById('camapply').onclick=async()=>{
     const d=j.detail||{};
     if(j.ok){
       st.className='ok';
-      st.textContent='Saved \u2014 the camera now holds '+j.requested+'. Reboot it for this to take hold.';
+      st.textContent=t('cam.saved',{ip:j.requested});
     } else {
       let why = d.attempts ? d.attempts.map(a=>'socket '+a.socket[0]+': '+(a.result||'')+(a.after?(' -> '+a.after):'')+(a.after_error?(' / '+a.after_error):'')).join('; ') : (j.error||'');
       st.className='err';
-      st.textContent='Not applied. '+(why||'the camera did not accept the change');
+      st.textContent=t('cam.notApplied',{why: why||t('cam.notAccepted')});
     }
   }catch(e){
     st.className='err';
-    st.textContent = e.name==='AbortError' ? 'Timed out waiting for the camera (12s).' : ('Failed: '+e.message);
+    st.textContent = e.name==='AbortError' ? t('cam.timeout') : t('cam.failed',{e:e.message});
   } finally { clearTimeout(to); }
 };
 setTimeout(()=>{ fetch('/camera',{cache:'no-store'}).then(r=>r.json())
@@ -630,6 +665,7 @@ document.getElementById('snap').onclick=()=>{
   a.download='supercam-'+mode+'.jpg'; a.href=c.toDataURL('image/jpeg',0.92); a.click();
 };
 /* apply the remembered view last, once everything above is defined */
+loadLang(document.getElementById('lang') ? document.getElementById('lang').value : 'en');
 setSplit(+stored(SPLIT_KEY,50),false);
 setMode(stored(MODE_KEY,'wipe'),false);
 </script>

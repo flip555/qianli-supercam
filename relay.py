@@ -782,6 +782,26 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(out)))
             self.end_headers()
             self.wfile.write(out)
+        elif p.startswith("/i18n/"):
+            name = p[len("/i18n/"):]
+            if (name.endswith(".json") and name[:-5].replace("-", "").isalnum()
+                    and len(name) < 24):
+                fp = os.path.join(HERE, "web", "i18n", name)
+                try:
+                    with open(fp, "rb") as f:
+                        out = f.read()
+                    self.send_response(200)
+                except OSError:
+                    out = b'{}'
+                    self.send_response(404)
+            else:
+                out = b'{}'
+                self.send_response(400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
         elif p == "/version":
             import json
             out = json.dumps({"ok": True, "version": VERSION, "repo": UPD.REPO}).encode()

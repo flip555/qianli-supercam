@@ -204,12 +204,14 @@ function watch(img,src){
 const vcanvas=document.getElementById('vidcanvas');
 const vctx=vcanvas.getContext('2d');
 let vcOn=false, vcDecoder=null, vcWatchdog=null, vcFallback=false, vcLastFrame=0;
+let vcReader=null, vcStart=0, vcRetries=0;
 let vcFed=0, vcAUs=0, vcLastAU=0, vcErrs=0;
 function mjpegFallback(reason){
   if(vcFallback) return;
   vcFallback=true; vcOn=false;
   try{ if(vcDecoder) vcDecoder.close(); }catch(e){}
-  vcDecoder=null;
+  try{ if(vcReader) vcReader.cancel(); }catch(e){}
+  vcReader=null; vcDecoder=null;
   vcanvas.style.display='none'; vid.style.display='block';
   if(!vid.getAttribute('src')) vid.src='/video.mjpg';
   watch(vid,'/video.mjpg');
@@ -305,8 +307,8 @@ function startVisibleCodec(){
       const res=await fetch('/raw.h264',{cache:'no-store'});
       if(!res.ok || !res.body) throw new Error('no raw stream');
       vcanvas.style.display='block'; vid.style.display='none'; vcOn=true;
-      vcWatchdog=setTimeout(()=>{ if(!gotFrame) mjpegFallback('no decodable frame within 10s'); }, 10000);
-      const reader=res.body.getReader();
+      vcStart=Date.now();
+      const reader=vcReader=res.body.getReader();
       for(;;){
         const {value,done}=await reader.read();
         if(done) break;
@@ -319,7 +321,26 @@ function startVisibleCodec(){
 }
 if(('VideoDecoder' in window) && !/[?&]mjpeg=1/.test(location.search)) startVisibleCodec();
 else mjpegFallback();
-setInterval(()=>{ if(vcOn && !vcFallback && vcLastFrame && Date.now()-vcLastFrame>6000) mjpegFallback('decoded feed stalled'); }, 2000);
+/* A hidden tab is throttled by the browser, which starves the decode loop - that
+   is expected, not a failure, so only judge the feed while the tab is visible. */
+setInterval(()=>{
+  if(!vcOn || vcFallback || document.hidden) return;
+  const now=Date.now();
+  if(vcLastFrame && now-vcLastFrame>6000) mjpegFallback('decoded feed stalled');
+  else if(!vcLastFrame && vcStart && now-vcStart>10000) mjpegFallback('no decodable frame within 10s');
+}, 2000);
+
+/* Coming back to the tab: if we had been pushed onto the MJPEG fallback, try the
+   codec path again rather than accepting the slower one for the rest of the visit. */
+function retryCodec(){
+  if(!vcFallback) return;
+  if(!('VideoDecoder' in window) || /[?&]mjpeg=1/.test(location.search)) return;
+  if(vcRetries++ >= 4) return;
+  vcFallback=false; vcLastFrame=0; vcStart=0;
+  console.info('visible feed: retrying the codec path');
+  startVisibleCodec();
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) retryCodec(); });
 
 /* camera-up indicator: the relay's /health is authoritative, so a frozen view
    can no longer be mistaken for a dead camera (there is no beeper on ours) */

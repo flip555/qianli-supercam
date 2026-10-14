@@ -16,6 +16,11 @@
   .ver{color:#8b949e;font:12px ui-monospace,Menlo,monospace;margin-left:8px;white-space:nowrap}
   .ver.update{color:#ffd166;cursor:pointer;text-decoration:underline}
   .feedmode{font:11px ui-monospace,Menlo,monospace;color:#8b949e;margin-left:6px}
+  footer.foot{display:flex;gap:12px;align-items:center;margin-top:16px;padding-top:12px;
+    border-top:1px solid #1e242c;font-size:12px;color:#8b949e}
+  footer.foot a{color:#8b949e;text-decoration:none}
+  footer.foot a:hover{color:#e6e8eb;text-decoration:underline}
+  footer.foot .grow{margin-left:auto}
   .meta{margin-left:auto;color:#8b949e;font-variant-numeric:tabular-nums}
   main{padding:16px;max-width:1400px;margin:0 auto}
   .stage{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:16/9;
@@ -134,6 +139,12 @@
   </div>
   <p class="note">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
   Wipe is the default view; the thermal never moves &mdash; calibration adjusts the video layer.</p>
+  <footer class="foot">
+    <a href="https://github.com/flip555/qianli-supercam" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/flip555/qianli-supercam/releases" target="_blank" rel="noopener">releases</a>
+    <span class="grow"></span>
+    <span id="footver"></span>
+  </footer>
 </main>
 
 <div id="camModal" class="modal" hidden>
@@ -190,8 +201,6 @@ function watch(img,src){
    server-side h264->MJPEG transcode entirely (it was the biggest CPU cost).
    Anything unsupported or unhappy falls back to the MJPEG <img>. Add ?mjpeg=1
    to the URL to force the old path. */
-const BUILD='align-fix';
-function report(msg){ try{ fetch('/debug?m='+encodeURIComponent(String(msg).slice(0,280)),{cache:'no-store'}); }catch(e){} }
 const vcanvas=document.getElementById('vidcanvas');
 const vctx=vcanvas.getContext('2d');
 let vcOn=false, vcDecoder=null, vcWatchdog=null, vcFallback=false, vcLastFrame=0;
@@ -210,7 +219,6 @@ function mjpegFallback(reason){
   const fm=document.getElementById('feedmode');
   if(fm){ fm.textContent='mjpeg'; fm.title='visible feed: MJPEG from the relay - '+why; }
   console.warn('visible feed: MJPEG fallback - '+why);
-  report('fallback: '+why);
 }
 function startVisibleCodec(){
   let au=[], spsNal=null, ppsNal=null, ts=0, configured=false, buf=new Uint8Array(0), gotFrame=false;
@@ -239,7 +247,6 @@ function startVisibleCodec(){
               const fm=document.getElementById('feedmode');
               if(fm){ fm.textContent='codec'; fm.title='visible feed: decoded in this browser (no transcoding on the relay)'; }
               if(vid.getAttribute('src')) vid.removeAttribute('src');
-              report('decoding ok: '+sp[1].toString(16)+'/'+sp[3].toString(16)+' '+f.displayWidth+'x'+f.displayHeight);
             }
             if(vcanvas.width!==f.displayWidth||vcanvas.height!==f.displayHeight){
               vcanvas.width=f.displayWidth; vcanvas.height=f.displayHeight; layout();
@@ -247,18 +254,17 @@ function startVisibleCodec(){
             try{ vctx.drawImage(f,0,0); }catch(e){}
             f.close();
           },
-          error:(e)=>{ report('decoder error: '+((e&&e.message)||e||'?')); mjpegFallback('decoder error'); }
+          error:(e)=>{ mjpegFallback('decoder error'); }
         });
         const cs='avc1.'+hex(sp[1])+hex(sp[2])+hex(sp[3]);
         vcDecoder.configure({codec:cs,optimizeForLatency:true});
         configured=true;
-        report('configured '+cs+' firstAU='+out.length+'B');
-      }catch(e){ report('configure threw: '+((e&&e.message)||e)); mjpegFallback('configure failed'); return; }
+      }catch(e){ mjpegFallback('configure failed'); return; }
     }
     try{
       vcDecoder.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp:ts,data:out}));
       vcFed++; ts+=66667;
-    }catch(e){ if(vcErrs++<3) report('decode() threw: '+((e&&e.message)||e)); }
+    }catch(e){ vcErrs++; }
   }
 
   function feed(bytes){
@@ -301,14 +307,10 @@ function startVisibleCodec(){
       vcanvas.style.display='block'; vid.style.display='none'; vcOn=true;
       vcWatchdog=setTimeout(()=>{ if(!gotFrame) mjpegFallback('no decodable frame within 10s'); }, 10000);
       const reader=res.body.getReader();
-      report('page build '+BUILD+' starting codec path');
       for(;;){
         const {value,done}=await reader.read();
         if(done) break;
-        if(value && value.length){
-          if(!window.__firstChunk){ window.__firstChunk=1;
-            report('first chunk '+value.length+'B head='+Array.from(value.slice(0,8)).map(b=>('0'+b.toString(16)).slice(-2)).join('')); }
-          feed(value); }
+        if(value && value.length) feed(value);
         if(vcDecoder && vcDecoder.decodeQueueSize>24) await new Promise(r=>setTimeout(r,20));
       }
       mjpegFallback();
@@ -318,10 +320,6 @@ function startVisibleCodec(){
 if(('VideoDecoder' in window) && !/[?&]mjpeg=1/.test(location.search)) startVisibleCodec();
 else mjpegFallback();
 setInterval(()=>{ if(vcOn && !vcFallback && vcLastFrame && Date.now()-vcLastFrame>6000) mjpegFallback('decoded feed stalled'); }, 2000);
-setInterval(()=>{ if(vcOn && !vcFallback && !vcLastFrame)
-  report('probe: state='+(vcDecoder?vcDecoder.state:'none')+' fed='+vcFed+
-         ' queue='+(vcDecoder?vcDecoder.decodeQueueSize:'-')+' AUs='+vcAUs+
-         ' lastAU='+vcLastAU+'B errs='+vcErrs+' ps='+(spsNal?'y':'n')+(ppsNal?'y':'n')); }, 3000);
 
 /* camera-up indicator: the relay's /health is authoritative, so a frozen view
    can no longer be mistaken for a dead camera (there is no beeper on ours) */
@@ -344,7 +342,8 @@ const verEl=document.getElementById('ver');
 let REL=null;
 async function checkVersion(){
   try{ const j=await (await fetch('/version',{cache:'no-store'})).json();
-       verEl.textContent='v'+j.version; verEl.title='repo: '+j.repo; }catch(e){}
+       verEl.textContent='v'+j.version; verEl.title='repo: '+j.repo;
+       const fv=document.getElementById('footver'); if(fv) fv.textContent='v'+j.version; }catch(e){}
 }
 async function checkUpdate(){
   try{

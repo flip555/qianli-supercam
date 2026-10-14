@@ -639,9 +639,6 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.path.split("?")[0]
         if p in ("/", "/index.html"):
-            _log("page served to %s | host=%s proto=%s" % (self.headers.get("User-Agent","?")[:60],
-                                                             self.headers.get("Host","?"),
-                                                             self.headers.get("X-Forwarded-Proto","http")))
             b = _page()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -782,17 +779,6 @@ class H(http.server.BaseHTTPRequestHandler):
                 out = json.dumps(_load_cal()).encode()
                 self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(out)))
-            self.end_headers()
-            self.wfile.write(out)
-        elif p == "/debug":
-            import urllib.parse
-            m = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("m") or [""])[0]
-            m = "".join(c for c in m if 32 <= ord(c) < 127)[:300]
-            _log("browser says: %s" % m)
-            out = b"ok"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(out)))
             self.end_headers()
             self.wfile.write(out)

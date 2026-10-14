@@ -1,4 +1,4 @@
-"""Find SuperCam / LAUNCHDIGITAL cameras on a network.
+"""Find SuperCam cameras on a network (QIANLI / SUNSHINE LC-AD11, TB-03 V2.0).
 
 The vendor Windows client never broadcasts, so there is nothing to listen for:
 discovery means sweeping TCP 3001 (the control port) and confirming a camera by
@@ -203,7 +203,7 @@ def find_one(cidrs: list[str] | None = None, log=print) -> dict | None:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Discover SuperCam / LAUNCHDIGITAL cameras")
+    ap = argparse.ArgumentParser(description="Discover SuperCam cameras (QIANLI / SUNSHINE LC-AD11, TB-03)")
     ap.add_argument("--cidr", action="append", default=[],
                     help="CIDR to sweep (repeatable). Default: local /24s")
     ap.add_argument("--workers", type=int, default=128)

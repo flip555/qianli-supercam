@@ -1,8 +1,9 @@
-# QIANLI Super Cam LC-AD11 — live view & thermal
+# SuperCam LC-AD11 — live view & thermal
 
-Live video and thermal imaging from a **QIANLI Super Cam LC-AD11** IP camera
-(also sold as *SuperCam* / *LAUNCHDIGITAL*) — in your browser, **without the
-vendor app and without a Windows PC**.
+Live video and thermal imaging from a **SuperCam LC-AD11** IP camera — sold as the
+**QIANLI Super Cam LC-AD11**, the **SUNSHINE LC-AD11** and the **TB-03 V2.0**. One
+camera, several badges: this project should work with any of them, in your browser,
+**without the vendor app and without a Windows PC**.
 
 Point it at your network and it finds the camera, connects, and serves a web GUI.
 
@@ -134,6 +135,10 @@ units, since this was built against a single one (firmware
 * Writing the camera's network settings works, but the unit here would not accept a
   change that moved it to a different `/24` — same-subnet changes apply normally.
   Moving subnets may need the vendor tool.
+* Built and tested against **one** unit — a QIANLI Super Cam LC-AD11 on firmware
+  `0181_B001_V02.01.01.11`. The same camera is sold as the SUNSHINE LC-AD11 and the
+  TB-03 V2.0 and should behave identically, but those have not been tested here.
+  Reports from other units (and other firmware revisions) are very welcome.
 * The camera's own control interface has no authentication (a blank `root` password
   over telnet). Treat the relay, and the camera, as trusted-LAN only.
 

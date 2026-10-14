@@ -1,4 +1,8 @@
-# SuperCam / LAUNCHDIGITAL camera protocol (reverse-engineered)
+# SuperCam camera protocol (reverse-engineered)
+
+Applies to the SuperCam LC-AD11 family — sold as the QIANLI Super Cam LC-AD11,
+the SUNSHINE LC-AD11 and the TB-03 V2.0 (one camera, several badges). The wire
+protocol still identifies itself as `LAUNCHDIGITAL`.
 
 Derived by capturing the vendor Windows client on a bridged tap and replaying it
 byte-for-byte against the camera.

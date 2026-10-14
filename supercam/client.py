@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qianli SuperCam native client (no Windows app).
+"""SuperCam native client (QIANLI / SUNSHINE LC-AD11, TB-03 V2.0) - no Windows app.
 
 Proven recipe: replay the captured client sequence EXACTLY (cli3.txt), with the
 LIVE per-session flag (from each 56-byte PROBE reply) substituted into the

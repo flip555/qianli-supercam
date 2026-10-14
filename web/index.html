@@ -194,6 +194,7 @@ function report(msg){ try{ fetch('/debug?m='+encodeURIComponent(String(msg).slic
 const vcanvas=document.getElementById('vidcanvas');
 const vctx=vcanvas.getContext('2d');
 let vcOn=false, vcDecoder=null, vcWatchdog=null, vcFallback=false, vcLastFrame=0;
+let vcFed=0, vcAUs=0, vcLastAU=0, vcErrs=0;
 function mjpegFallback(reason){
   if(vcFallback) return;
   vcFallback=true; vcOn=false;
@@ -240,13 +241,18 @@ function startVisibleCodec(){
         const cs='avc1.'+hex(sps[1])+hex(sps[2])+hex(sps[3]);
         vcDecoder.configure({codec:cs,optimizeForLatency:true});
         console.info('visible feed: WebCodecs decoding', cs);
+        report('configured: '+cs+' keyAU='+au.length+'NALs');
         configured=true;
-      }catch(e){ mjpegFallback(); return; }
+      }catch(e){ report('configure threw: '+((e&&e.message)||e)); mjpegFallback(); return; }
     }
     let out=new Uint8Array(au.reduce((a,n)=>a+n.data.length,0)), o=0, key=false;
     for(const n of au){ out.set(n.data,o); o+=n.data.length; if(n.type===5) key=true; }
     au=[];
-    try{ vcDecoder.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp:ts,data:out})); ts+=66667; }catch(e){}
+    vcAUs++; vcLastAU=out.length;
+    try{
+      vcDecoder.decode(new EncodedVideoChunk({type:key?'key':'delta',timestamp:ts,data:out}));
+      vcFed++; ts+=66667;
+    }catch(e){ if(vcErrs++ < 3) report('decode() threw: '+((e&&e.message)||e)); }
   }
   function feed(bytes){
     const m=new Uint8Array(buf.length+bytes.length); m.set(buf); m.set(bytes,buf.length); buf=m;
@@ -294,6 +300,10 @@ function startVisibleCodec(){
 if(('VideoDecoder' in window) && !/[?&]mjpeg=1/.test(location.search)) startVisibleCodec();
 else mjpegFallback();
 setInterval(()=>{ if(vcOn && !vcFallback && vcLastFrame && Date.now()-vcLastFrame>6000) mjpegFallback('decoded feed stalled'); }, 2000);
+setInterval(()=>{ if(vcOn && !vcFallback && !vcLastFrame)
+  report('probe: state='+(vcDecoder?vcDecoder.state:'none')+' fed='+vcFed+
+         ' queue='+(vcDecoder?vcDecoder.decodeQueueSize:'-')+' AUs='+vcAUs+
+         ' lastAU='+vcLastAU+'B errs='+vcErrs); }, 3000);
 
 /* camera-up indicator: the relay's /health is authoritative, so a frozen view
    can no longer be mistaken for a dead camera (there is no beeper on ours) */

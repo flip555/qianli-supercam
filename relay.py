@@ -169,6 +169,10 @@ def _video_writer() -> None:
             _vproc = None
 
 
+def _log(msg: str) -> None:
+    print("%s %s" % (time.strftime("%H:%M:%S"), msg), flush=True)
+
+
 def _camera_reachable() -> bool:
     """Quick probe: is the camera answering on its control port right now?"""
     host = getattr(_client, "host", None) or HOST
@@ -635,9 +639,9 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.path.split("?")[0]
         if p in ("/", "/index.html"):
-            print("page served to %s | host=%s proto=%s" % (self.headers.get("User-Agent","?")[:60],
-                                                       self.headers.get("Host","?"),
-                                                       self.headers.get("X-Forwarded-Proto","http")), flush=True)
+            _log("page served to %s | host=%s proto=%s" % (self.headers.get("User-Agent","?")[:60],
+                                                             self.headers.get("Host","?"),
+                                                             self.headers.get("X-Forwarded-Proto","http")))
             b = _page()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -648,7 +652,7 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == "/raw.h264":
             _hits["rawconn"] += 1
             _t0, _nb = time.time(), 0
-            print("raw.h264 client connected", flush=True)
+            _log("raw.h264 client connected")
             q: "queue.Queue[bytes]" = queue.Queue(maxsize=400)
             with _raw_lock:
                 _raw_subs.add(q)
@@ -667,7 +671,7 @@ class H(http.server.BaseHTTPRequestHandler):
                     except OSError:
                         break
             finally:
-                print("raw.h264 client left: %.0fs, %d KB" % (time.time()-_t0, _nb//1024), flush=True)
+                _log("raw.h264 client left: %.0fs, %d KB" % (time.time()-_t0, _nb//1024))
                 with _raw_lock:
                     _raw_subs.discard(q)
         elif p == "/stream.mjpg":
@@ -785,7 +789,7 @@ class H(http.server.BaseHTTPRequestHandler):
             import urllib.parse
             m = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("m") or [""])[0]
             m = "".join(c for c in m if 32 <= ord(c) < 127)[:300]
-            print("browser says: %s" % m, flush=True)
+            _log("browser says: %s" % m)
             out = b"ok"
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")

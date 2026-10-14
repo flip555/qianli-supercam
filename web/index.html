@@ -256,6 +256,12 @@ function startVisibleCodec(){
   }
   function feed(bytes){
     const m=new Uint8Array(buf.length+bytes.length); m.set(buf); m.set(bytes,buf.length); buf=m;
+    /* the relay starts mid-NAL, so skip forward to the first start code first -
+       without this the parser never matches anything and no frame ever decodes */
+    let lead=0;
+    while(lead+3<=buf.length && !(buf[lead]===0 && buf[lead+1]===0 &&
+          (buf[lead+2]===1 || (lead+4<=buf.length && buf[lead+2]===0 && buf[lead+3]===1)))) lead++;
+    if(lead>0) buf=buf.slice(lead);
     let pos=0;
     while(true){
       let sc=0;

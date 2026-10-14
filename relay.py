@@ -781,6 +781,17 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(out)))
             self.end_headers()
             self.wfile.write(out)
+        elif p == "/debug":
+            import urllib.parse
+            m = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("m") or [""])[0]
+            m = "".join(c for c in m if 32 <= ord(c) < 127)[:300]
+            print("browser says: %s" % m, flush=True)
+            out = b"ok"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
         elif p == "/version":
             import json
             out = json.dumps({"ok": True, "version": VERSION, "repo": UPD.REPO}).encode()

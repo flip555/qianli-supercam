@@ -96,15 +96,31 @@ def _peaks(vals, n: int = 3, min_sep: int = 14, margin: int = 3):
 
 
 def decode(frame: bytes, palette: str = "rainbow",
-           scale: float = 0.01, offset: float = 0.0) -> tuple[Image.Image, dict]:
+           scale: float = 0.01, offset: float = 0.0,
+           tmin: float = None, tmax: float = None) -> tuple[Image.Image, dict]:
+    """Decode one thermal frame.
+
+    With no range the colours span the frame's own min..max (automatic contrast).
+    Given ``tmin``/``tmax`` in degrees, the ramp is pinned to that band instead and
+    everything outside it is drawn white - so a narrow band can be picked out of a
+    scene without the colours sliding around as the scene changes.
+    """
     vals = struct.unpack_from("<%dH" % N, frame, PAYLOAD_OFFSET)
     lo, hi = min(vals), max(vals)
-    span = (hi - lo) or 1
-    idx = bytes(int((v - lo) * 255 // span) for v in vals)
+    if tmin is None or tmax is None or tmax <= tmin:
+        clo, chi = lo, hi          # automatic
+    else:
+        clo, chi = int((tmin - offset) / scale), int((tmax - offset) / scale)
+    span = (chi - clo) or 1
     lut = LUTS.get(palette, LUTS["rainbow"])
     rgb = bytearray(N * 3)
-    for i, b in enumerate(idx):
-        rgb[i * 3:i * 3 + 3] = lut[b * 3:b * 3 + 3]
+    for i, v in enumerate(vals):
+        if v < clo or v > chi:
+            rgb[i * 3:i * 3 + 3] = b"\xff\xff\xff"
+        else:
+            b = (v - clo) * 255 // span
+            rgb[i * 3:i * 3 + 3] = lut[(0 if b < 0 else 255 if b > 255 else b) * 3:
+                                       (0 if b < 0 else 255 if b > 255 else b) * 3 + 3]
     img = Image.frombytes("RGB", (W, H), bytes(rgb))
     hot = max(range(N), key=lambda i: vals[i])
     cold = min(range(N), key=lambda i: vals[i])

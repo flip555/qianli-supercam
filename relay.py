@@ -34,6 +34,27 @@ PALETTE_PATH = (os.environ.get("PALETTE_PATH")
 _palette = {"name": PALETTE}          # live palette - the GUI can change it
 
 
+TRANGE_PATH = os.path.join(os.path.dirname(CAL_PATH), "trange.json")
+_trange = {"min": None, "max": None}      # live temperature band (None = automatic)
+
+
+def _load_trange():
+    import json
+    try:
+        with open(TRANGE_PATH) as f:
+            t = json.load(f)
+        lo, hi = t.get("min"), t.get("max")
+        if lo is not None and hi is not None:
+            _trange["min"], _trange["max"] = float(lo), float(hi)
+            print("temperature band restored: %.1f-%.1f C" % (_trange["min"], _trange["max"]),
+                  flush=True)
+    except Exception:
+        pass
+
+
+_load_trange()
+
+
 def _load_palette():
     """Restore the palette chosen in the GUI (falls back to the default)."""
     try:
@@ -263,7 +284,8 @@ def _thermal_worker(client, sock, data):
     if not frames:
         return
     try:
-        img, stats = TH.decode(frames[-1], _palette["name"], SCALE, OFFSET)
+        img, stats = TH.decode(frames[-1], _palette["name"], SCALE, OFFSET,
+                               _trange["min"], _trange["max"])
         out = io.BytesIO(); img.save(out, format="JPEG", quality=80)
         jpeg = out.getvalue()
     except Exception:
@@ -849,6 +871,44 @@ class H(http.server.BaseHTTPRequestHandler):
                 print("release installed - exiting so the supervisor restarts cleanly", flush=True)
                 threading.Timer(1.5, lambda: os._exit(3)).start()
             return
+        elif p == "/trange":
+            import json, urllib.parse
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if "auto" in q:
+                _trange["min"] = _trange["max"] = None
+            elif "min" in q and "max" in q:
+                try:
+                    lo, hi = float(q["min"][0]), float(q["max"][0])
+                    if hi <= lo:
+                        raise ValueError("max must exceed min")
+                    _trange["min"], _trange["max"] = lo, hi
+                except Exception as e:
+                    out = json.dumps({"ok": False, "error": str(e)}).encode()
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(out)))
+                    self.end_headers(); self.wfile.write(out); return
+            else:
+                out = json.dumps({"ok": True, "min": _trange["min"], "max": _trange["max"],
+                                  "auto": _trange["min"] is None}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers(); self.wfile.write(out); return
+            try:
+                with open(TRANGE_PATH, "w") as fh:
+                    json.dump({"min": _trange["min"], "max": _trange["max"]}, fh)
+            except Exception:
+                pass
+            print("temperature band -> %s" % ("automatic" if _trange["min"] is None
+                                               else "%.1f-%.1f C" % (_trange["min"], _trange["max"])),
+                  flush=True)
+            out = json.dumps({"ok": True, "min": _trange["min"], "max": _trange["max"],
+                              "auto": _trange["min"] is None}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers(); self.wfile.write(out)
         elif p == "/palette":
             import json, urllib.parse
             name = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)

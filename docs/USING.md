@@ -202,12 +202,23 @@ If the readings are offset (or plain wrong), calibrate against two references:
 
 ## Snapshots
 
-**Capture → Snapshot** saves what you actually see — the current mode, split, fusion,
-calibration, temperature labels and readout — and does two things: downloads a JPEG, and
-stores the snapshot on the relay with its **raw 16-bit thermal frame** and a metadata
-sidecar (palette, bands, calibration, stats). Stored snapshots appear as a gallery under
-Capture, each downloadable as a zip of picture, raw frame and metadata. The raw frame is
-what makes a snapshot re-analysable later; the in-GUI re-analysis view is not built yet.
+**Capture → Snapshot** — or the camera button on the image, which works in fullscreen —
+saves what you see, and stores four things: the composed picture, the visible layer on its
+own, the raw 16-bit thermal frame, and metadata (statistics, palette, bands, calibration,
+regions). The gallery lists one row per snapshot with **Re-analyse**, **×** (delete, with a
+confirmation) and **Download** (all four files as one zip).
+
+**Re-analyse** opens the stored frame: the video still and the re-rendered raw are composed
+into one image with the current mode, so Wipe, PiP, Fusion, Thermal and Video work as they
+do live. The palette, bands and isotherm re-render the raw frame; the numbers — readout,
+peaks, markers, regions — are frozen on the snapshot, and the live polls pause until you
+press **Back to live**.
+
+## Units and remembered state
+
+The footer's **°C / °F** switch changes every temperature on screen; settings stay in °C.
+The browser also remembers the mode, split, fusion, wipe side, language, unit and which
+panels are open.
 
 ## Updating
 

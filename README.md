@@ -41,7 +41,7 @@ in **[Getting Started](https://github.com/flip555/qianli-supercam/wiki/Getting-S
 * **Two-point thermal calibration** per camera
 * **Built in** — sign-in with a guest role whose capabilities the admin grants per
   feature (measure, snapshot, palette, reference, calibration, alarms, clips),
-  snapshots, five languages and an in-page updater
+  snapshots with raw-frame re-analysis, °C/°F, nine languages and an in-page updater
 
 ## Documentation
 

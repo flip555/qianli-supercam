@@ -450,13 +450,15 @@ const stage=document.getElementById('stage'), vid=document.getElementById('vid')
 
 /* ---- translations: one JSON file per language in web/i18n/ ---- */
 let I18N={}, LANG='en';
-const LANGS=[['en','English'],['es','Espa\u00f1ol'],['fr','Fran\u00e7ais'],['de','Deutsch'],['pt','Portugu\u00eas']];
+const LANGS=[['en','English'],['es','Espa\u00f1ol'],['fr','Fran\u00e7ais'],['de','Deutsch'],['pt','Portugu\u00eas'],['zh','\u7b80\u4f53\u4e2d\u6587'],['ja','\u65e5\u672c\u8a9e'],['ru','\u0420\u0443\u0441\u0441\u043a\u0438\u0439'],['ar','\u0627\u0644\u0639\u0631\u0628\u064a\u0629']];
 function t(key,vars){
   let s=(I18N[key]!=null)?I18N[key]:key;
   if(vars) for(const k in vars) s=s.split('{'+k+'}').join(vars[k]);
   return s;
 }
 function applyI18N(){
+  const langSel=document.getElementById('lang');
+  try{ document.documentElement.dir = (langSel && langSel.value==='ar') ? 'rtl' : 'ltr'; }catch(e){}
   document.documentElement.lang=LANG;
   document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent=t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-title]').forEach(el=>{ el.title=t(el.dataset.i18nTitle); });

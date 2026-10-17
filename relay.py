@@ -1692,7 +1692,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 return
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-                for ext in (".jpg", ".raw", ".json"):
+                for ext in (".jpg", "-video.jpg", ".raw", ".json"):
                     if os.path.exists(base + ext):
                         z.write(base + ext, name + ext)
             data = buf.getvalue()

@@ -820,6 +820,7 @@ function setMode(m,save){
   document.querySelectorAll('#modes button').forEach(x=>x.classList.toggle('on', x.dataset.mode===m));
   stage.className='stage mode-'+m;
   stage.classList.add('wipe-'+wipeSide);   /* setMode rebuilds the list, so restore it */
+  reanaRefreshSoon();
   document.getElementById('wipewrap').classList.toggle('on', m==='wipe');
   /* hide what the current view cannot use */
   const thermal = (m!=='video');
@@ -1614,7 +1615,7 @@ bandSlider('clipLo','clipHi'); bandSlider('spanLo','spanHi'); bandSync();
 const fusewrap=document.getElementById('fusewrap'), fuseEl=document.getElementById('fuse');
 const FUSE_KEY='supercam.fuse';
 const fuseOut=document.getElementById('fuseOut');
-const setFuse=(v,save=true)=>{ stage.style.setProperty('--fuse',(v/100).toFixed(2));
+const setFuse=(v,save=true)=>{ stage.style.setProperty('--fuse',(v/100).toFixed(2)); reanaRefreshSoon();
   fuseEl.value=v; if(fuseOut) fuseOut.textContent=v+'%';
   if(save){ try{ localStorage.setItem(FUSE_KEY,v); }catch(e){} } };
 fuseEl.oninput=e=>setFuse(+e.target.value);
@@ -1631,7 +1632,13 @@ function applyWipeSide(side){
   try{ localStorage.setItem('supercam.wipeside', wipeSide); }catch(e){}
 }
 const SPLIT_KEY='supercam.split';
-const setSplit=(p,save=true)=>{ stage.style.setProperty('--split',p+'%'); wr.value=p;
+let _reanaT=0;
+function reanaRefreshSoon(){
+  if(!document.body.classList.contains('reana')) return;
+  clearTimeout(_reanaT);
+  _reanaT=setTimeout(function(){ try{ reanaImage(); }catch(e){} }, 160);
+}
+const setSplit=(p,save=true)=>{ stage.style.setProperty('--split',p+'%'); wr.value=p; reanaRefreshSoon();
   if(save){ try{ localStorage.setItem(SPLIT_KEY,p); }catch(e){} } };
 wr.oninput=e=>setSplit(e.target.value);
 const wa=document.getElementById('wipeAnchor');

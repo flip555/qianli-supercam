@@ -94,6 +94,9 @@
   .sub>summary{cursor:pointer;color:#8b949e;font-size:12px;margin-top:12px;list-style:none}
   .sub>summary::-webkit-details-marker{display:none}
   body.guest #alarmSec{display:none}
+  .prelen{width:58px;padding:4px 5px;font-size:12px;background:#0b0d10;border:1px solid #2b3542;
+    border-radius:6px;color:#e6e8eb}
+  #clipList .roirow{margin-top:4px}
   body.roi-mode .stage{cursor:crosshair}
   #regionList{margin-top:8px}
   .roirow{display:flex;gap:6px;align-items:center;margin-top:5px;font-size:12px}
@@ -285,6 +288,17 @@
         <div class="ctl"><button id="alarmAdd" data-i18n="btn.addAlarm">Add alarm</button></div>
         <details class="sub"><summary data-i18n="panel.notify">Notifications</summary>
           <div id="notifyList"></div>
+        </details>
+        <details class="sub" open><summary data-i18n="panel.clips">Clips</summary>
+          <div class="ctl">
+            <label class="aen"><input type="checkbox" id="preOn"> <span data-i18n="label.on">on</span></label>
+            <span class="lbl" data-i18n="label.before">before</span>
+            <input type="number" class="prelen" id="preBefore" min="0" max="300" step="1" value="10">
+            <span class="lbl" data-i18n="label.after">after</span>
+            <input type="number" class="prelen" id="preAfter" min="0" max="300" step="1" value="10">
+            <button id="preSave" data-i18n="btn.save">Save</button>
+          </div>
+          <div id="clipList"></div>
         </details>
       </details>
       <details class="sec" id="alignSec">
@@ -988,7 +1002,7 @@ function notifyRender(j){
 }
 function notifyLoad(){ fetch('/notify',{cache:'no-store'}).then(r=>r.json()).then(notifyRender).catch(()=>{}); }
 alarmLoad(); notifyLoad();
-setInterval(alarmLoad, 3000);
+setInterval(()=>{ alarmLoad(); preLoad(); }, 3000);
 
 function toggleFullscreen(){
   if(document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); return; }
@@ -999,6 +1013,32 @@ document.addEventListener('fullscreenchange',()=>{ setTimeout(()=>{ try{ layout(
 addEventListener('keydown',ev=>{
   if((ev.key==='f'||ev.key==='F') && !/input|select|textarea/i.test((ev.target.tagName||''))) toggleFullscreen();
 });
+
+/* ---- pre-record clips ---- */
+function preRender(j){
+  if(!j || !j.ok) return;
+  const on=document.getElementById('preOn'), b=document.getElementById('preBefore'), a=document.getElementById('preAfter');
+  if(on) on.checked=!!j.enabled;
+  if(b) b.value=j.before_s;
+  if(a) a.value=j.after_s;
+  const box=document.getElementById('clipList');
+  if(!box) return;
+  const clips=j.clips||[];
+  box.innerHTML = clips.length ? clips.map(c=>
+    '<div class="roirow"><span class="roiname">'+c.name+'</span>'+
+    '<span class="roival">'+Math.round((c.size||0)/1024)+' KB</span>'+
+    '<a class="btnlink" href="/captures.zip?name='+encodeURIComponent(c.name)+'">'+t('btn.download')+'</a></div>'
+  ).join('') : '<p class=hint>'+t('clips.none')+'</p>';
+}
+function preLoad(){ fetch('/prerecord',{cache:'no-store'}).then(r=>r.json()).then(preRender).catch(()=>{}); }
+document.getElementById('preSave').onclick=()=>{
+  const fd=new FormData();
+  fd.append('enabled', document.getElementById('preOn').checked ? '1' : '0');
+  fd.append('before_s', document.getElementById('preBefore').value || 10);
+  fd.append('after_s', document.getElementById('preAfter').value || 10);
+  fetch('/prerecord',{method:'POST',body:fd}).then(r=>r.json()).then(preRender).catch(()=>{});
+};
+preLoad();
 
 const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElementById('clipHi'),
                spanLo:document.getElementById('spanLo'), spanHi:document.getElementById('spanHi')};

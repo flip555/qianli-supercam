@@ -19,6 +19,7 @@ from supercam import authpages
 from supercam import regions as REG
 from supercam import alarms as AL
 from supercam.notify import Notify
+from supercam.prerecord import PreRecord
 from supercam import __version__ as VERSION
 from PIL import Image
 
@@ -191,10 +192,42 @@ def _on_alarms(fired):
         except Exception:
             pass
         NOTIFY.send(list(NOTIFY.cfg.keys()), text)
+        try:
+            PREREC.trigger(time.time(), {"rule": rule.get("id"), "name": rule.get("name"),
+                                         "text": text})
+        except Exception:
+            pass
         print("alarm fired: %s" % text, flush=True)
 
 
 _load_alarms()
+
+PREREC_PATH = os.path.join(os.path.dirname(CAL_PATH), "prerecord.json")
+PREREC_DIR = os.path.join(os.path.dirname(CAL_PATH), "captures")
+PREREC = PreRecord(PREREC_DIR)
+
+
+def _load_prerec():
+    try:
+        with open(PREREC_PATH) as f:
+            d = json.load(f)
+        PREREC.configure(d.get("enabled", True), d.get("before_s", 10), d.get("after_s", 10))
+        print("pre-record: %s, %ds before / %ds after"
+              % ("on" if PREREC.enabled else "off", PREREC.before, PREREC.after), flush=True)
+    except Exception:
+        pass
+
+
+def _save_prerec():
+    try:
+        with open(PREREC_PATH, "w") as f:
+            json.dump({"enabled": PREREC.enabled,
+                       "before_s": PREREC.before, "after_s": PREREC.after}, f)
+    except Exception:
+        pass
+
+
+_load_prerec()
 
 _trange = {"clip_lo": None, "clip_hi": None,   # shown at all (None = no bound)
            "span_lo": None, "span_hi": None,   # palette span   (None = automatic)
@@ -529,6 +562,10 @@ def _thermal_worker(client, sock, data):
             fired = AL.evaluate(_alarms, stats, res, time.time())
             if fired:
                 _on_alarms(fired)
+    except Exception:
+        pass
+    try:
+        PREREC.add(time.time(), jpeg)
     except Exception:
         pass
     with _lock:
@@ -903,7 +940,8 @@ class H(http.server.BaseHTTPRequestHandler):
     # ---------- authentication plumbing ----------
     API_PATHS = ("/health", "/version", "/thermal.json", "/history.json", "/camera",
                  "/reboot", "/update", "/calibration", "/palette", "/trange", "/isotherm",
-                 "/whoami", "/regions", "/regions.csv", "/alarms", "/notify")
+                 "/whoami", "/regions", "/regions.csv", "/alarms", "/notify",
+                 "/captures", "/captures.zip", "/prerecord")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
@@ -1163,6 +1201,37 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Content-Length", str(len(j)))
                 self.end_headers(); self.wfile.write(j)
+        elif p == "/captures":
+            self._json_out(200, {"ok": True, "clips": PREREC.list()})
+        elif p == "/captures.zip":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            name = os.path.basename((q.get("name") or [""])[0])
+            path = os.path.join(PREREC_DIR, name + ".zip") if name else ""
+            if not name or not os.path.exists(path):
+                self._json_out(404, {"ok": False, "error": "no such clip"})
+                return
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except Exception:
+                self._json_out(500, {"ok": False, "error": "cannot read clip"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", 'attachment; filename="%s.zip"' % name)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        elif p == "/prerecord":
+            if self.command == "POST":
+                f = self._form()
+                PREREC.configure(("enabled" in f and f.get("enabled") == "1"),
+                                 int(float(f.get("before_s") or PREREC.before)),
+                                 int(float(f.get("after_s") or PREREC.after)))
+                _save_prerec()
+            self._json_out(200, {"ok": True, "enabled": PREREC.enabled,
+                                 "before_s": PREREC.before, "after_s": PREREC.after,
+                                 "clips": PREREC.list()})
         elif p == "/alarms":
             if self.command == "POST":
                 global _alarms

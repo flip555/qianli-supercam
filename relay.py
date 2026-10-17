@@ -116,7 +116,7 @@ def _load_palette():
     try:
         with open(PALETTE_PATH) as f:
             name = f.read().strip()
-        if name in TH.LUTS:
+        if (name in TH.LUTS or name == "isotherm"):
             _palette["name"] = name
             print("palette restored: %s" % name, flush=True)
     except Exception:

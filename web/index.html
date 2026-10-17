@@ -221,6 +221,15 @@
         <summary data-i18n="panel.chart">Chart</summary>
         <canvas id="chart"></canvas>
         <div class="chartlegend" id="chartlegend"></div>
+        <div class="bandrow" style="margin-top:6px">
+          <div class="seg" id="chartwin">
+            <button data-win="60">1M</button>
+            <button data-win="300">5M</button>
+            <button data-win="600" class="on">10M</button>
+            <button data-win="3600">1H</button>
+          </div>
+          <button id="chartclear" class="ghost" data-i18n="btn.clear">Clear</button>
+        </div>
       </details>
       <details class="sec">
         <summary data-i18n="panel.align">Align</summary>
@@ -777,25 +786,44 @@ function saveCal(){ fetch('/calibration',{method:'POST',headers:{'Content-Type':
   body:JSON.stringify(CAL)}).catch(()=>{}); }
 let lastStats=null;
 /* temperature history for the chart: one sample a second, ten minutes */
-const HIST=[], HIST_MAX=600;
+const HIST=[], HIST_MAX=3600;      /* one hour at a sample a second, kept in localStorage */
+let histWin=600, histDirty=false;
+const HIST_KEY='supercam.hist';
 const chartEl=document.getElementById('chart'), chartCtx=chartEl.getContext('2d');
 const chartLegend=document.getElementById('chartlegend');
+function histLoad(){
+  try{
+    const a=JSON.parse(localStorage.getItem(HIST_KEY)||'[]');
+    if(Array.isArray(a)){ HIST.length=0; a.slice(-HIST_MAX).forEach(p=>{
+      if(p && typeof p.max==='number') HIST.push({max:p.max,avg:p.avg,min:p.min}); }); }
+  }catch(e){}
+  try{ const w=+localStorage.getItem(HIST_KEY+'.win'); if(w>=60&&w<=3600) histWin=w; }catch(e){}
+}
+function histSave(){
+  if(!histDirty) return;
+  histDirty=false;
+  try{ localStorage.setItem(HIST_KEY, JSON.stringify(HIST.slice(-HIST_MAX))); }catch(e){}
+}
+setInterval(histSave, 5000);
+histLoad();
+
 function drawChart(){
   const w=chartEl.clientWidth||300, h=chartEl.clientHeight||110;
   if(chartEl.width!==w) chartEl.width=w;
   if(chartEl.height!==h) chartEl.height=h;
   const g=chartCtx;
   try{ g.clearRect(0,0,w,h); }catch(e){ return; }
-  if(HIST.length<2) return;
+  const view=HIST.slice(-Math.min(HIST.length, histWin));
+  if(view.length<2) return;
   let lo=Infinity, hi=-Infinity;
-  for(const p of HIST){ if(p.min<lo) lo=p.min; if(p.max>hi) hi=p.max; }
+  for(const p of view){ if(p.min<lo) lo=p.min; if(p.max>hi) hi=p.max; }
   if(hi-lo<1){ const m=(hi+lo)/2; lo=m-0.5; hi=m+0.5; }
   const pad=(hi-lo)*0.12; lo-=pad; hi+=pad;
-  const X=(i)=>i/Math.max(1,HIST.length-1)*w;
+  const X=(i)=>i/Math.max(1,view.length-1)*w;
   const Y=(v)=>h-(v-lo)/(hi-lo)*h;
   const line=(key,col,width)=>{
     g.beginPath();
-    HIST.forEach((p,i)=>{ const x=X(i), y=Y(p[key]); i?g.lineTo(x,y):g.moveTo(x,y); });
+    view.forEach((p,i)=>{ const x=X(i), y=Y(p[key]); i?g.lineTo(x,y):g.moveTo(x,y); });
     g.strokeStyle=col; g.lineWidth=width; g.stroke();
   };
   line('min','#4aa3ff',1.3);
@@ -809,13 +837,25 @@ function drawChart(){
     g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke();
     g.fillText(v.toFixed(1)+'°C', 4, Math.max(10, y-2));
   }
-  const last=HIST[HIST.length-1];
+  const last=view[view.length-1];
   if(chartLegend) chartLegend.innerHTML =
     '<span style="color:#ffb84d">'+t('chart.max')+' <b>'+last.max.toFixed(1)+'</b></span>'+
     '<span style="color:#8b949e">'+t('chart.avg')+' <b>'+last.avg.toFixed(1)+'</b></span>'+
     '<span style="color:#4aa3ff">'+t('chart.min')+' <b>'+last.min.toFixed(1)+'</b></span>';
 }
 addEventListener('resize',()=>{ drawChart(); });
+document.querySelectorAll('#chartwin button').forEach(b=>{
+  b.classList.toggle('on', +b.dataset.win===histWin);
+  b.onclick=()=>{
+    histWin=+b.dataset.win;
+    try{ localStorage.setItem(HIST_KEY+'.win', histWin); }catch(e){}
+    document.querySelectorAll('#chartwin button').forEach(x=>x.classList.toggle('on', x===b));
+    drawChart();
+  };
+});
+document.getElementById('chartclear').onclick=()=>{
+  HIST.length=0; histDirty=true; histSave(); drawChart();
+};
 let saveTimer=null;
 const saveSoon=()=>{ clearTimeout(saveTimer); saveTimer=setTimeout(saveCal,700); };
 ts.oninput=e=>{CAL.ts=+e.target.value; applyCal(); saveSoon();};
@@ -877,6 +917,7 @@ function tick(){
       lastStats=s; renderMarks(s);
       HIST.push({max:s.max_c, avg:s.mean_c, min:s.min_c});
       if(HIST.length>HIST_MAX) HIST.shift();
+      histDirty=true;
       drawChart();
     }
   }).catch(()=>{ meta.textContent=t('status.noStatus'); });

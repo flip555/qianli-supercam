@@ -102,24 +102,21 @@ class Auth:
     # ---------- sessions ----------
     def login(self, username: str, password: str):
         if not self.enabled():
-            return self._open_session("admin")
+            return self._new_session("admin", self.cfg.get("username") or "admin")
         username = (username or "").strip()
         if username == self.cfg.get("username") and check_password(password, self.cfg.get("password") or ""):
-            return self._new_session("admin")
+            return self._new_session("admin", self.cfg.get("username") or username)
         guest = self.cfg.get("guest") or {}
         if (guest.get("enabled") and guest.get("password")
                 and (username == "guest" or username == guest.get("name", "guest"))
                 and check_password(password, guest["password"])):
-            return self._new_session("guest")
+            return self._new_session("guest", "guest")
         return None
 
-    def _new_session(self, role: str) -> str:
+    def _new_session(self, role: str, user: str) -> str:
         token = secrets.token_urlsafe(32)
-        self.sessions[token] = {"role": role, "exp": time.time() + SESSION_TTL}
+        self.sessions[token] = {"role": role, "user": user, "exp": time.time() + SESSION_TTL}
         return token
-
-    def _open_session(self, role: str) -> str:
-        return self._new_session(role)
 
     def session(self, token: str):
         if not token:

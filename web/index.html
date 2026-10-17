@@ -45,6 +45,12 @@
   .stage.mode-pip #thimg{inset:auto 14px 14px auto;width:var(--pipw,26%);height:auto;
     border:1px solid #3a4553;border-radius:8px;image-rendering:pixelated;box-shadow:0 6px 24px rgba(0,0,0,.5)}
   .wipebar{display:none}
+  .stage.mode-wipe.wipe-r #thimg{clip-path:inset(0 0 0 var(--split,50%))}
+  .stage.mode-wipe.wipe-l #thimg{clip-path:inset(0 calc(100% - var(--split,50%)) 0 0)}
+  .stage.mode-wipe.wipe-t #thimg{clip-path:inset(0 0 calc(100% - var(--split,50%)) 0)}
+  .stage.mode-wipe.wipe-b #thimg{clip-path:inset(var(--split,50%) 0 0 0)}
+  .stage.mode-wipe.wipe-t .wipebar,.stage.mode-wipe.wipe-b .wipebar{
+    top:var(--split,50%);left:0;right:0;bottom:auto;width:auto;height:2px}
   .stage.mode-wipe .wipebar{display:block;position:absolute;top:0;bottom:0;left:var(--split,50%);width:2px;
     background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.6);cursor:ew-resize;z-index:3}
   .stage.mode-wipe .wipebar::after{content:"";position:absolute;top:50%;left:50%;width:34px;height:34px;
@@ -89,6 +95,10 @@
   #toast{position:fixed;right:18px;bottom:18px;max-width:380px;background:#3a1d1d;border:1px solid #7a2c2c;
     color:#ffd7d7;padding:10px 13px;border-radius:9px;font-size:13px;display:none;z-index:60;line-height:1.4}
   .stage:fullscreen{background:#000}
+  #snapFloat{position:absolute;top:10px;right:10px;width:36px;height:36px;border-radius:50%;
+    background:rgba(8,10,13,.62);border:1px solid #3a4553;color:#e6e8eb;font-size:16px;line-height:1;
+    cursor:pointer;z-index:9;opacity:.75}
+  #snapFloat:hover{opacity:1;background:rgba(31,111,235,.85)}
   #dtLegend{position:absolute;right:12px;bottom:12px;display:none;align-items:center;gap:6px;
     background:rgba(8,10,13,.72);padding:4px 8px;border-radius:6px;
     font:11px ui-monospace,Menlo,monospace;color:#c8d1dc;z-index:8;pointer-events:none}
@@ -121,6 +131,9 @@
     border-radius:6px;color:#e6e8eb}
   #clipList .roirow{margin-top:4px}
   body.roi-mode .stage{cursor:crosshair}
+  #snapList .roirow{flex-wrap:wrap;row-gap:3px}
+  #snapList .roirow .roiname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #snapList .roirow .btnlink,#snapList .roirow button{flex:0 0 auto}
   #regionList{margin-top:8px}
   .roirow{display:flex;gap:6px;align-items:center;margin-top:5px;font-size:12px}
   .roirow .roiname{flex:0 0 auto;color:#c8d1dc}
@@ -222,6 +235,7 @@
         <div id="frozenBadge" data-i18n="label.frozen">FROZEN</div>
         <div id="dtBadge" data-i18n="label.dt">&#916;T</div>
         <div id="reanaBadge" data-i18n="label.reana">RE-ANALYSIS</div>
+        <button id="snapFloat" data-i18n-title="btn.snapshot">&#128247;</button>
         <div id="dtLegend"><span id="dtLo">&#8722;5</span><div class="ramp"></div><span id="dtHi">+5</span></div>
         <div class="readout" id="readout">&mdash;</div>
       </div>
@@ -242,7 +256,11 @@
           <button id="size" data-i18n="pip.med">PiP: med</button></div>
         <div class="ctl"><button id="fullscreen" data-i18n="btn.fullscreen">Fullscreen</button><button id="freeze" data-i18n="btn.freeze">Freeze</button></div>
         <div class="ctl" id="wipewrap"><span class="lbl" data-i18n="label.split">Split</span>
-          <input type="range" id="wipe" min="0" max="100" value="50"></div>
+          <input type="range" id="wipe" min="0" max="100" value="50">
+          <select id="wipeAnchor" title="side">
+            <option value="r">&#9656;</option><option value="l">&#9666;</option>
+            <option value="t">&#9652;</option><option value="b">&#9662;</option>
+          </select></div>
         <div class="ctl" id="fusewrap"><span class="lbl" data-i18n="label.fusion">Fusion</span>
           <input type="range" id="fuse" min="0" max="100" value="55"><output id="fuseOut">55%</output></div>
       </details>
@@ -401,8 +419,7 @@
       <details class="sec" open>
         <summary data-i18n="panel.capture">Capture</summary>
         <div class="ctl">
-          <button id="snap" data-i18n="btn.snapshot">Snapshot</button>
-          <button id="cog" data-i18n="btn.camera" data-i18n-title="btn.camera.title">&#9881; Camera</button></div>
+          <button id="snap" data-i18n="btn.snapshot">Snapshot</button></div>
         <div class="ctl" id="reanaBar" style="display:none">
           <span class="hint" id="reanaNow" style="margin:0"></span>
           <button id="reanaRefresh" data-i18n="btn.refresh">Refresh</button>
@@ -413,6 +430,7 @@
     </aside>
   </div>
   <footer class="foot">
+    <button id="cog" class="ghost" data-i18n="btn.camera" data-i18n-title="btn.camera.title">&#9881; Camera</button>
     <a href="https://github.com/flip555/qianli-supercam" target="_blank" rel="noopener" data-i18n="footer.github">GitHub</a>
     <a href="https://github.com/flip555/qianli-supercam/releases" target="_blank" rel="noopener" data-i18n="footer.releases">releases</a>
     <span class="grow"></span>
@@ -904,22 +922,32 @@ function roiDraw(){
     const col=r.ref?'#7fd1ff':'#ffd166';
     if(r.kind==='point'){
       const p=r.pts[0];
-      return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="2.5" fill="none" stroke="'+col+'" stroke-width="1.5"/>';
+      return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="2.5" fill="none" stroke="'+col+'" stroke-width="0.6"/>';
     }
     if(r.kind==='rect'){
       const a=r.pts[0], b=r.pts[1];
       return '<rect x="'+Math.min(a[0],b[0])+'" y="'+Math.min(a[1],b[1])+'" width="'+Math.abs(a[0]-b[0])+
-             '" height="'+Math.abs(a[1]-b[1])+'" fill="none" stroke="'+col+'" stroke-width="1.5"/>';
+             '" height="'+Math.abs(a[1]-b[1])+'" fill="none" stroke="'+col+'" stroke-width="0.6"/>';
     }
     if(r.kind==='poly'){
       const pts=(r.pts||[]).map(p=>p[0]+','+p[1]).join(' ');
-      return '<polygon points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.5"/>';
+      return '<polygon points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="0.6"/>';
     }
     return '';
   });
+  /* the peaks, printed on the shape so you do not have to read the panel */
+  const byId={}; (ROI_STATS||[]).forEach(st=>{ byId[st.id]=st; });
+  ROI.forEach(r=>{
+    const st=byId[r.id]; if(!st || st.max_c==null) return;
+    const pts=r.pts||[]; if(!pts.length) return;
+    const xs=pts.map(q=>q[0]), ys=pts.map(q=>q[1]);
+    const x=Math.min.apply(null,xs), y=Math.max(4, Math.min.apply(null,ys)-1.4);
+    parts.push('<text x="'+x+'" y="'+y+'" font-size="2.6" fill="#fff" stroke="#000" stroke-width="0.3" paint-order="stroke">'+
+               st.max_c.toFixed(1)+'/'+st.min_c.toFixed(1)+'</text>');
+  });
   if(POLY.length){
     const pts=POLY.map(p=>p[0]+','+p[1]).join(' ');
-    parts.push('<polyline points="'+pts+'" fill="none" stroke="#ffd166" stroke-width="1.5" stroke-dasharray="3 2"/>');
+    parts.push('<polyline points="'+pts+'" fill="none" stroke="#ffd166" stroke-width="0.6" stroke-dasharray="3 2"/>');
     POLY.forEach(p=>parts.push('<circle cx="'+p[0]+'" cy="'+p[1]+'" r="1.8" fill="#ffd166"/>'));
   }
   if(ROIDRAG && ROISTART){
@@ -1497,13 +1525,25 @@ setFuse(+stored(FUSE_KEY,55),false);
 
 /* wipe (off by default) */
 const wb=document.getElementById('wipebar'), wr=document.getElementById('wipe');
+let wipeSide='r';
+function applyWipeSide(side){
+  wipeSide=(side==='l'||side==='t'||side==='b')?side:'r';
+  stage.classList.remove('wipe-l','wipe-r','wipe-t','wipe-b');
+  stage.classList.add('wipe-'+wipeSide);
+  const sel=document.getElementById('wipeAnchor'); if(sel) sel.value=wipeSide;
+  try{ localStorage.setItem('supercam.wipeside', wipeSide); }catch(e){}
+}
 const SPLIT_KEY='supercam.split';
 const setSplit=(p,save=true)=>{ stage.style.setProperty('--split',p+'%'); wr.value=p;
   if(save){ try{ localStorage.setItem(SPLIT_KEY,p); }catch(e){} } };
 wr.oninput=e=>setSplit(e.target.value);
+const wa=document.getElementById('wipeAnchor');
+if(wa) wa.onchange=()=>applyWipeSide(wa.value);
 let drag=false;
 const move=e=>{ if(!drag)return; const r=stage.getBoundingClientRect();
-  setSplit(Math.max(0,Math.min(100,((e.touches?e.touches[0].clientX:e.clientX)-r.left)/r.width*100))); };
+  const cx=(e.touches?e.touches[0].clientX:e.clientX), cy=(e.touches?e.touches[0].clientY:e.clientY);
+  const pct=(wipeSide==='t'||wipeSide==='b') ? (cy-r.top)/r.height*100 : (cx-r.left)/r.width*100;
+  setSplit(Math.max(0,Math.min(100,pct))); };
 wb.addEventListener('mousedown',e=>{ if(ROIMODE) return; drag=true; e.preventDefault(); });
 wb.addEventListener('touchstart',e=>{ drag=true; e.preventDefault(); },{passive:false});
 document.addEventListener('selectstart',e=>{ if(drag) e.preventDefault(); });
@@ -1544,6 +1584,7 @@ async function histLoad(){
     }
   }catch(e){}
   try{ const w=+localStorage.getItem(HIST_KEY+'.win'); if(w>=60&&w<=3600) histWin=w; }catch(e){}
+  syncWinButtons();
 }
 histLoad();
 setInterval(()=>{ if(Date.now()-histSynced>60000) histLoad(); }, 15000);
@@ -1585,6 +1626,11 @@ function drawChart(){
     '<span style="color:#4aa3ff">'+t('chart.min')+' <b>'+last.min.toFixed(1)+'</b></span>';
 }
 addEventListener('resize',()=>{ drawChart(); });
+function syncWinButtons(){
+  document.querySelectorAll('#chartwin button').forEach(x=>{
+    x.classList.toggle('on', +x.dataset.win===histWin);
+  });
+}
 document.querySelectorAll('#chartwin button').forEach(b=>{
   b.classList.toggle('on', +b.dataset.win===histWin);
   b.onclick=()=>{
@@ -1760,10 +1806,18 @@ document.getElementById('snap').onclick=()=>{
       cover={sc:sc,dx:dx,dy:dy};
       g.imageSmoothingEnabled=false;
       if(mode==='wipe'){
-        const sx=num('--split',50)/100*W;
-        g.save(); g.beginPath(); g.rect(sx,0,W-sx,H); g.clip();
+        /* the snapshot must clip the same side the live view does */
+        const pct=num('--split',50)/100;
+        g.save(); g.beginPath();
+        if(wipeSide==='l') g.rect(0,0,W*pct,H);
+        else if(wipeSide==='t') g.rect(0,0,W,H*pct);
+        else if(wipeSide==='b') g.rect(0,H*(1-pct),W,H*pct);
+        else g.rect(W*pct,0,W*(1-pct),H);
+        g.clip();
         g.drawImage(thimg,dx,dy,tw*sc,th*sc); g.restore();
-        g.fillStyle='#fff'; g.fillRect(Math.max(0,sx-1),0,2,H);
+        g.fillStyle='#fff';
+        if(wipeSide==='t'||wipeSide==='b') g.fillRect(0,Math.round(H*pct)-1,W,2);
+        else g.fillRect(Math.round(W*pct)-1,0,2,H);
       } else {
         if(mode==='fusion') g.globalAlpha=num('--fuse',0.55);
         g.drawImage(thimg,dx,dy,tw*sc,th*sc);
@@ -1808,6 +1862,7 @@ document.getElementById('snap').onclick=()=>{
 };
 /* apply the remembered view last, once everything above is defined */
 loadLang(document.getElementById('lang') ? document.getElementById('lang').value : 'en');
+applyWipeSide(stored('supercam.wipeside','r'));
 setSplit(+stored(SPLIT_KEY,50),false);
 setMode(stored(MODE_KEY,'wipe'),false);
 </script>

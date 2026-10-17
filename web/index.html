@@ -501,7 +501,7 @@ function startVisibleCodec(){
             if(vcanvas.width!==f.displayWidth||vcanvas.height!==f.displayHeight){
               vcanvas.width=f.displayWidth; vcanvas.height=f.displayHeight; layout();
             }
-            try{ vctx.drawImage(f,0,0); }catch(e){}
+            try{ if(!FROZEN) vctx.drawImage(f,0,0); }catch(e){}
             f.close();
           },
           error:(e)=>{ mjpegFallback(t('why.decoderError')); }
@@ -1323,6 +1323,7 @@ function renderMarks(st){
 
 /* thermal readout + status */
 function tick(){
+  if(FROZEN) return;
   fetch('/thermal.json',{cache:'no-store'}).then(r=>r.json()).then(j=>{
     const s=j.stats;
     if(s){

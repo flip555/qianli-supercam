@@ -64,6 +64,17 @@ pip install -r requirements.txt
 * **Looks after itself** — the relay runs under a supervisor with a stall watchdog,
   and can update itself from GitHub releases without leaving the browser.
 
+## Documentation
+
+This README is the front door; the task-by-task guide is
+**[docs/USING.md](docs/USING.md)** — signing in, the view modes, bands and isotherms,
+measuring, the chart, alignment, alarms, notifications, clips, calibration, snapshots
+and the keyboard shortcuts.
+
+It lives in the repository rather than the GitHub wiki so it is reviewed with the code
+and versioned with the release it describes; a wiki mirror is easy to add if you would
+rather read it there.
+
 ## Configuration
 
 | Variable | Default | Purpose |

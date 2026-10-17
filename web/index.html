@@ -1017,6 +1017,7 @@ function roiAdd(kind,pts){
   roiPush(); roiList([]);
 }
 async function roiLoad(){
+  if(document.body.classList.contains('reana')) return;   /* the snapshot's numbers are showing */
   try{
     const j=await (await fetch('/regions',{cache:'no-store'})).json();
     if(j.ok){ ROI=j.regions||[]; ROI_STATS=j.stats||[]; roiDraw(); roiList(ROI_STATS);
@@ -1815,7 +1816,7 @@ function renderMarks(st){
 
 /* thermal readout + status */
 function tick(){
-  if(FROZEN) return;
+  if(FROZEN || document.body.classList.contains('reana')) return;
   fetch('/thermal.json',{cache:'no-store'}).then(r=>r.json()).then(j=>{
     const s=j.stats;
     if(s){

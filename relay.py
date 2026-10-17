@@ -1670,7 +1670,7 @@ class H(http.server.BaseHTTPRequestHandler):
             items = []
             try:
                 for name in sorted(os.listdir(SNAPSHOT_DIR), reverse=True):
-                    if not name.endswith(".jpg"):
+                    if not name.endswith(".jpg") or name.endswith("-video.jpg"):
                         continue
                     base = os.path.join(SNAPSHOT_DIR, name[:-4])
                     st = os.stat(base + ".jpg")

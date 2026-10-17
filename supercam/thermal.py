@@ -50,6 +50,17 @@ LUTS = {
 }
 
 
+def _banded(lut: bytes, steps: int) -> bytes:
+    """Quantise a LUT into `steps` flat colour bands (the isotherm look)."""
+    steps = max(2, min(16, int(steps)))
+    out = bytearray(256 * 3)
+    for i in range(256):
+        band = (i * steps) // 256
+        centre = (band * 256 + 128) // steps
+        out[i * 3:i * 3 + 3] = lut[centre * 3:centre * 3 + 3]
+    return bytes(out)
+
+
 class ThermalDecoder:
     """Reassembles 39448-byte thermal frames from a byte stream."""
 
@@ -98,7 +109,8 @@ def _peaks(vals, n: int = 3, min_sep: int = 14, margin: int = 3):
 def decode(frame: bytes, palette: str = "rainbow",
            scale: float = 0.01, offset: float = 0.0,
            clip_lo: float = None, clip_hi: float = None,
-           span_lo: float = None, span_hi: float = None) -> tuple[Image.Image, dict]:
+           span_lo: float = None, span_hi: float = None,
+           steps: int = 8) -> tuple[Image.Image, dict]:
     """Decode one thermal frame.
 
     Two independent bands, which is how the vendor software works:
@@ -126,6 +138,8 @@ def decode(frame: bytes, palette: str = "rainbow",
     if shi <= slo: shi = slo + 1
     span = shi - slo
     lut = LUTS.get(palette, LUTS["rainbow"])
+    if palette == "isotherm":
+        lut = _banded(LUTS["rainbow"], steps)
     rgb = bytearray(N * 3)
     for i, v in enumerate(vals):
         if (clo is not None and v < clo) or (chi is not None and v > chi):

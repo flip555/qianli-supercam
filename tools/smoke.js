@@ -51,7 +51,7 @@ global.setInterval = () => 0; global.clearInterval = () => {}; global.setTimeout
 global.addEventListener = () => {};
 global.ResizeObserver = class { observe() {} };
 global.getComputedStyle = () => ({ getPropertyValue: () => '' });
-global.confirm = () => true; global.alert = () => {};
+global.confirm = () => true; global.alert = () => {}; global.prompt = () => null;
 global.URL = { createObjectURL: () => '' }; global.Image = class {};
 global.__applyBands = null;
 

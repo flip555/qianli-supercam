@@ -183,9 +183,10 @@
             <option value="ironbow" data-i18n="palette.ironbow">ironbow</option>
             <option value="whitehot" data-i18n="palette.whitehot">white hot</option>
             <option value="blackhot" data-i18n="palette.blackhot">black hot</option>
+            <option value="isotherm" data-i18n="palette.isotherm">isotherm</option>
           </select></div>
         <div id="bandwrap">
-          <div class="bandrow"><span class="lbl" data-i18n="label.show">Show</span>
+          <div class="bandrow" id="clipRow"><span class="lbl" data-i18n="label.show">Show</span>
             <div class="dual" id="clipDual">
               <div class="track"></div><div class="fill" id="clipFill"></div>
               <input type="range" id="clipLoR" min="-10" max="150" step="0.5" value="-10">
@@ -194,7 +195,7 @@
             <input type="number" id="clipLo" step="0.5" placeholder="auto">
             <input type="number" id="clipHi" step="0.5" placeholder="auto">
             <button id="clipauto" data-i18n="btn.auto">Auto</button></div>
-          <div class="bandrow"><span class="lbl" data-i18n="label.colours">Colours</span>
+          <div class="bandrow" id="coloursRow"><span class="lbl" data-i18n="label.colours">Colours</span>
             <div class="dual" id="spanDual">
               <div class="track"></div><div class="fill" id="spanFill"></div>
               <input type="range" id="spanLoR" min="-10" max="150" step="0.5" value="-10">
@@ -203,6 +204,13 @@
             <input type="number" id="spanLo" step="0.5" placeholder="auto">
             <input type="number" id="spanHi" step="0.5" placeholder="auto">
             <button id="spanauto" data-i18n="btn.auto">Auto</button></div>
+          <div class="bandrow" id="profileRow"><span class="lbl" data-i18n="label.profile">Profile</span>
+            <select id="isoProfile"></select>
+            <button id="isoSave" data-i18n="btn.saveAs">Save as…</button>
+            <button id="isoDelete" class="ghost" data-i18n="btn.delete">Delete</button></div>
+          <div class="bandrow" id="stepsRow"><span class="lbl" data-i18n="label.steps">Steps</span>
+            <input type="number" id="steps" min="2" max="16" step="1" value="8">
+            <span class="lbl" style="min-width:0" data-i18n="label.bands">bands</span></div>
         </div>
       </details>
       <details class="sec" open>
@@ -585,10 +593,51 @@ document.getElementById('size').onclick=e=>{
   e.target.textContent=t('pip.'+pi);
 };
 const palsel=document.getElementById('pal');
+/* ---- isotherm: a palette mode with named profiles ---- */
+const stepsEl=document.getElementById('steps');
+const isoProf=document.getElementById('isoProfile');
+function thermalControls(){
+  const iso = palsel.value === 'isotherm';
+  ['coloursRow','profileRow','stepsRow'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.style.display = iso ? '' : 'none';
+  });
+}
+function isoRender(j){
+  if(!j || !j.ok) return;
+  const profs=j.profiles||{};
+  if(isoProf){
+    isoProf.innerHTML=Object.keys(profs).sort()
+      .map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'">'+n+'</option>').join('');
+    if(j.current) isoProf.value=j.current;
+  }
+  if(j.steps && stepsEl) stepsEl.value=j.steps;
+  bandEls.spanLo.value=(j.span_lo==null?'':j.span_lo);
+  bandEls.spanHi.value=(j.span_hi==null?'':j.span_hi);
+  if(typeof bandSync==='function') bandSync();
+}
+const isoLoad=()=>fetch('/isotherm',{cache:'no-store'}).then(r=>r.json()).then(isoRender).catch(()=>{});
 palsel.onchange=()=>fetch('/palette?name='+encodeURIComponent(palsel.value))
-  .then(r=>r.json()).then(j=>{ if(!j.ok) console.warn('palette refused:', j.error); }).catch(()=>{});
+  .then(r=>r.json()).then(j=>{ if(!j.ok) console.warn('palette refused:', j.error); thermalControls(); }).catch(()=>{});
 fetch('/palette').then(r=>r.json())
-  .then(j=>{ if(j.ok && j.palette) palsel.value=j.palette; }).catch(()=>{});
+  .then(j=>{ if(j.ok && j.palette) palsel.value=j.palette; thermalControls(); }).catch(()=>{});
+if(stepsEl) stepsEl.onchange=()=>{
+  const v=Math.max(2,Math.min(16,parseInt(stepsEl.value,10)||8));
+  stepsEl.value=v;
+  fetch('/trange?steps='+v,{cache:'no-store'}).catch(()=>{});
+};
+if(isoProf) isoProf.onchange=()=>fetch('/isotherm?apply='+encodeURIComponent(isoProf.value),{cache:'no-store'})
+  .then(r=>r.json()).then(isoRender).catch(()=>{});
+document.getElementById('isoSave').onclick=()=>{
+  const n=prompt(t('label.profile')+' name');
+  if(!n) return;
+  fetch('/isotherm?save='+encodeURIComponent(n.trim()),{cache:'no-store'}).then(r=>r.json()).then(isoRender).catch(()=>{});
+};
+document.getElementById('isoDelete').onclick=()=>{
+  if(!isoProf || !isoProf.value) return;
+  if(!confirm(t('btn.delete')+' "'+isoProf.value+'"?')) return;
+  fetch('/isotherm?delete='+encodeURIComponent(isoProf.value),{cache:'no-store'}).then(r=>r.json()).then(isoRender).catch(()=>{});
+};
+isoLoad();
 
 /* Thermal bands, in the same shape the vendor software uses:
      Show    - clip window: anything outside is drawn white (hide the 25 C room,

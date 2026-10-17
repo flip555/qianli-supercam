@@ -36,7 +36,53 @@ _palette = {"name": PALETTE}          # live palette - the GUI can change it
 
 TRANGE_PATH = os.path.join(os.path.dirname(CAL_PATH), "trange.json")
 _trange = {"clip_lo": None, "clip_hi": None,   # shown at all (None = no bound)
-           "span_lo": None, "span_hi": None}   # palette span   (None = automatic)
+           "span_lo": None, "span_hi": None,   # palette span   (None = automatic)
+           "steps": 8}                          # isotherm bands
+
+ISO_PATH = os.path.join(os.path.dirname(CAL_PATH), "isotherm.json")
+ISO_BUILTIN = {"fine 16": {"steps": 16, "span_lo": None, "span_hi": None},
+               "pcba 8":   {"steps": 8,  "span_lo": None, "span_hi": None},
+               "coarse 4": {"steps": 4,  "span_lo": None, "span_hi": None}}
+_iso = {"current": "pcba 8", "profiles": dict(ISO_BUILTIN)}
+
+
+def _load_iso():
+    import json
+    try:
+        with open(ISO_PATH) as f:
+            t = json.load(f)
+        for k, v in (t.get("profiles") or {}).items():
+            _iso["profiles"][k] = v
+        if t.get("current") in _iso["profiles"]:
+            _iso["current"] = t["current"]
+    except Exception:
+        pass
+
+
+def _save_iso():
+    import json
+    try:
+        with open(ISO_PATH, "w") as f:
+            json.dump(_iso, f)
+    except Exception:
+        pass
+
+
+def _apply_iso(name):
+    p = _iso["profiles"].get(name)
+    if not p:
+        return False
+    _trange["steps"] = int(p.get("steps") or 8)
+    _trange["span_lo"] = p.get("span_lo")
+    _trange["span_hi"] = p.get("span_hi")
+    _iso["current"] = name
+    _save_iso()
+    return True
+
+
+_load_iso()
+if _iso["profiles"].get(_iso["current"]):
+    _apply_iso(_iso["current"])
 
 
 def _load_trange():
@@ -288,7 +334,8 @@ def _thermal_worker(client, sock, data):
     try:
         img, stats = TH.decode(frames[-1], _palette["name"], SCALE, OFFSET,
                                _trange["clip_lo"], _trange["clip_hi"],
-                               _trange["span_lo"], _trange["span_hi"])
+                               _trange["span_lo"], _trange["span_hi"],
+                               _trange["steps"])
         out = io.BytesIO(); img.save(out, format="JPEG", quality=80)
         jpeg = out.getvalue()
     except Exception:
@@ -891,6 +938,11 @@ class H(http.server.BaseHTTPRequestHandler):
                 # not silently clear the others (that made a half-filled pair look
                 # like it kept resetting itself to automatic).
                 supplied = {k: q[k][0] for k in ("clip_lo", "clip_hi", "span_lo", "span_hi") if k in q}
+                if "steps" in q:
+                    try:
+                        _trange["steps"] = max(2, min(16, int(float(q["steps"][0]))))
+                    except Exception:
+                        pass
                 for alias, key in (("min", "span_lo"), ("max", "span_hi")):
                     if alias in q and key not in supplied:
                         supplied[key] = q[alias][0]
@@ -912,6 +964,41 @@ class H(http.server.BaseHTTPRequestHandler):
                     pass
             out = json.dumps(dict({"ok": True}, **_trange)).encode()
             self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers(); self.wfile.write(out)
+        elif p == "/isotherm":
+            import json, urllib.parse
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            ok = True
+            if "apply" in q:
+                ok = _apply_iso(q["apply"][0])
+            elif "save" in q:
+                name = (q["save"][0] or "").strip()[:40]
+                if name:
+                    _iso["profiles"][name] = {"steps": _trange["steps"],
+                                              "span_lo": _trange["span_lo"],
+                                              "span_hi": _trange["span_hi"]}
+                    _iso["current"] = name
+                    _save_iso()
+                else:
+                    ok = False
+            elif "delete" in q:
+                name = q["delete"][0]
+                if name in _iso["profiles"] and name not in ISO_BUILTIN:
+                    del _iso["profiles"][name]
+                    if _iso["current"] == name:
+                        _iso["current"] = next(iter(ISO_BUILTIN))
+                        _apply_iso(_iso["current"])
+                    _save_iso()
+                else:
+                    ok = False
+            out = json.dumps({"ok": ok, "current": _iso["current"],
+                              "profiles": _iso["profiles"],
+                              "steps": _trange["steps"],
+                              "span_lo": _trange["span_lo"],
+                              "span_hi": _trange["span_hi"]}).encode()
+            self.send_response(200 if ok else 400)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
             self.end_headers(); self.wfile.write(out)

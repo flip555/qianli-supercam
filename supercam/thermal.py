@@ -108,20 +108,24 @@ def _peaks(vals, n: int = 3, min_sep: int = 14, margin: int = 3):
 
 
 def _denoise(vals) -> list:
-    """3x3 median, so a single dead pixel cannot win the min/max.
+    """3x3 median with clamped edges, so isolated dead pixels cannot win the extremes.
 
-    These sensors have isolated bad pixels (ours reports about 0.35 C at the corner),
-    and before this the reported minimum was always that pixel rather than the
-    coldest real spot. A median keeps real features, which span several pixels.
+    These sensors have bad pixels - ours reads about 0.35 C at the border - and a
+    border-skipping filter left exactly those winning the min/max. A real hot
+    component spans more than one pixel, so a median keeps it and drops single-pixel
+    outliers. The rendered image itself is not filtered.
     """
     out = list(vals)
-    for y in range(1, H - 1):
-        row = y * W
-        for x in range(1, W - 1):
-            i = row + x
-            out[i] = sorted((vals[i - W - 1], vals[i - W], vals[i - W + 1],
-                             vals[i - 1], vals[i], vals[i + 1],
-                             vals[i + W - 1], vals[i + W], vals[i + W + 1]))[4]
+    for y in range(H):
+        y0 = y * W
+        up = max(0, y - 1) * W
+        dn = min(H - 1, y + 1) * W
+        for x in range(W):
+            xm = max(0, x - 1)
+            xp = min(W - 1, x + 1)
+            out[y0 + x] = sorted((vals[up + xm], vals[up + x], vals[up + xp],
+                                  vals[y0 + xm], vals[y0 + x], vals[y0 + xp],
+                                  vals[dn + xm], vals[dn + x], vals[dn + xp]))[4]
     return out
 
 

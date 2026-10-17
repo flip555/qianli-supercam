@@ -1174,6 +1174,7 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path.split("?")[0]
+        global _regions
         self.role = "admin"
         try:
             if self._route_public(p):
@@ -1303,11 +1304,14 @@ class H(http.server.BaseHTTPRequestHandler):
                     if raw:
                         with open(base + ".raw", "wb") as f:
                             f.write(raw)
+                    with _lock:
+                        region_stats = list(_state.get("regions") or [])
                     meta = {"at": round(time.time(), 1), "stats": now_stats,
                             "palette": _palette["name"], "bands": dict(_trange),
                             "scale": _tcal["scale"], "offset": _tcal["offset"],
                             "user": getattr(self, "user", None),
-                            "raw_bytes": len(raw) if raw else 0}
+                            "raw_bytes": len(raw) if raw else 0,
+                            "regions": list(_regions), "region_stats": region_stats}
                     with open(base + ".json", "w") as f:
                         json.dump(meta, f, indent=2, default=str)
                 except Exception as exc:
@@ -1445,7 +1449,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self._json_out(200, {"ok": True, "channels": NOTIFY.status()})
         elif p == "/regions":
             if self.command == "POST":
-                global _regions
                 try:
                     items = json.loads(self._body() or "[]")
                 except Exception:

@@ -81,6 +81,8 @@ Choose **isotherm** in the Palette list to paint a colour per temperature band.
 * Each region gets a row with live **min / average / max**, and a **delta** against
   whichever region is marked as the reference (the radio).
 * **CSV** downloads the log: one row per region per second, rotating at 10 MB.
+* Each region can carry **its own alarm** — up to 32, each with a separate threshold,
+  direction and dwell (see Alarms below).
 * Regions are stored on the relay, so they survive restarts and are shared by viewers.
 
 ## The chart
@@ -171,6 +173,8 @@ clips.
 * **The picture is still.** Check the **FROZEN** badge, then `Space`.
 * **Readings are off by a constant, or drift.** Two-point calibration, then check the
   slope with the far reference.
+* **You want ΔT between a reference board and this one.** Not implemented: the delta in
+  Measure is region against region, not frame against a stored frame.
 * **A tab left alone comes back to the login page.** That should no longer happen —
   sessions are signed cookies now — so tell the maintainer if it does.
 * **Locked out.** `python -m supercam.auth --reset` on the host.

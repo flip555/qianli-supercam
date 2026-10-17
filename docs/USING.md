@@ -119,7 +119,7 @@ Calibration is stored server-side and shared with every viewer. Snapshots includ
 
 **Alarm** → `Add alarm`. Each rule watches either:
 
-* the **whole frame**, or **one of your regions**, and
+* the **whole frame**, or **one of your regions** (including a polygon — it measures only
 * the **max** or the **average**,
 
 and fires when it goes **above** or **below** a threshold **for a chosen time** — the

@@ -965,7 +965,11 @@ function toast(msg){
   toastTimer=setTimeout(()=>{ el.style.display='none'; }, 8000);
 }
 function alarmRowHtml(r){
-  const regions=(ROI||[]).map(x=>'<option value="'+x.id+'"'+(r.region_id===x.id?' selected':'')+'>'+(x.name||x.id)+'</option>').join('');
+  const regions=(ROI||[]).map(x=>{
+    const glyph = x.kind==='point' ? '\u2022' : (x.kind==='poly' ? '\u2b20' : '\u25ad');
+    return '<option value="'+x.id+'"'+(r.region_id===x.id?' selected':'')+'>'+
+           glyph+' '+(x.name||x.id)+'</option>';
+  }).join('');
   const d=+r.dwell_ms||0;
   let unit='1000', val=d/1000;
   if(d && d<1000){ unit='1'; val=d; }
@@ -1008,6 +1012,9 @@ function alarmEvents(events){
 function alarmRender(j){
   if(!j || !j.ok) return;
   ALARMS=j.alarms||[];
+  const editing=(document.activeElement && document.activeElement.closest &&
+                 document.activeElement.closest('#alarmList'));
+  if(editing){ alarmEvents(j.events); return; }
   const box=document.getElementById('alarmList');
   if(box){
     box.innerHTML = ALARMS.length ? ALARMS.map(alarmRowHtml).join('') : '<p class=hint>'+t('alarm.none')+'</p>';

@@ -77,6 +77,11 @@
   #chart{width:100%;height:110px;display:block;background:#0d1117;border-radius:8px;margin-top:10px}
   .chartlegend{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;font:12px ui-monospace,Menlo,monospace}
   .chartlegend b{font-weight:600}
+  .isorow{display:flex;gap:4px;align-items:center;margin-top:4px}
+  .isorow input[type=number]{width:50px;padding:3px 4px;font-size:12px}
+  .isorow input[type=color]{width:26px;height:22px;padding:0;border:1px solid #3a4553;background:#0d1117;border-radius:4px;cursor:pointer}
+  .isorow .del{padding:1px 6px;font-size:11px}
+  .isorow .tilde{color:#5c6673;font-size:11px}
   .lbl{color:#8b949e;font-size:12px;min-width:58px}
   #bandwrap{margin-top:10px}
   .bandrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
@@ -208,11 +213,8 @@
             <select id="isoProfile"></select>
             <button id="isoSave" data-i18n="btn.saveAs">Save as…</button>
             <button id="isoDelete" class="ghost" data-i18n="btn.delete">Delete</button></div>
-          <div class="bandrow" id="isoRow"><span class="lbl" data-i18n="label.base">From</span>
-            <input type="number" id="isoBase" step="0.5" value="20">
-            <span class="lbl" style="min-width:0" data-i18n="label.step">Step</span>
-            <input type="number" id="isoStep" step="0.5" value="5"></div>
-          <div class="bandrow" id="isoColours"></div>
+          <div id="isoBands"></div>
+          <div class="bandrow"><button id="isoAdd" data-i18n="btn.add">Add</button></div>
         </div>
       </details>
       <details class="sec" open>
@@ -600,32 +602,36 @@ document.getElementById('size').onclick=e=>{
 const palsel=document.getElementById('pal');
 /* ---- isotherm: a palette mode with named profiles ---- */
 const isoProf=document.getElementById('isoProfile');
-const isoBase=document.getElementById('isoBase'), isoStep=document.getElementById('isoStep');
-const isoScal=document.getElementById('isoColours');
-const DEF_COLOURS=['#2657ff','#1b9cff','#00d4ff','#22e0a1','#ffe14d','#ff9f1a','#ff4d4d','#ff00d4'];
+const isoBox=document.getElementById('isoBands');
 let isoSending=0;
+function isoBands(){ return Array.from(isoBox.querySelectorAll('.isorow')).map(r=>({
+  lo: parseFloat(r.querySelector('.lo').value)||0,
+  hi: parseFloat(r.querySelector('.hi').value)||0,
+  colour: r.querySelector('input[type=color]').value })); }
 function isoSend(){
-  const cols=Array.from(isoScal.querySelectorAll('input[type=color]')).map(i=>i.value);
-  const qs='base='+encodeURIComponent(isoBase.value||20)+
-           '&step='+encodeURIComponent(isoStep.value||5)+
-           '&colours='+encodeURIComponent(cols.join(','));
+  const bands=isoBands().filter(b=>b.hi>b.lo);
   isoSending=1;
-  fetch('/trange?'+qs,{cache:'no-store'}).catch(()=>{}).finally(()=>{ isoSending=0; });
+  fetch('/trange?bands='+encodeURIComponent(JSON.stringify(bands)),{cache:'no-store'})
+    .catch(()=>{}).finally(()=>{ isoSending=0; });
+}
+function isoRow(b){
+  const row=document.createElement('div'); row.className='isorow';
+  row.innerHTML='<input type="number" class="lo" step="0.5" value="'+(b.lo||0)+'">'+
+                '<span class="tilde">~</span>'+
+                '<input type="number" class="hi" step="0.5" value="'+(b.hi||0)+'">'+
+                '<input type="color" value="'+(b.colour||'#ffffff')+'">'+
+                '<button class="del ghost" title="remove">\u00d7</button>';
+  row.querySelectorAll('input').forEach(el=>{ el.onchange=isoSend; el.oninput=el.onchange; });
+  row.querySelector('.del').onclick=()=>{ row.remove(); isoSend(); };
+  return row;
 }
 function isoRenderScal(iso){
-  iso=iso||{base:20,step:5,colours:DEF_COLOURS};
-  isoBase.value=iso.base; isoStep.value=iso.step;
-  const cols=(iso.colours&&iso.colours.length)?iso.colours:DEF_COLOURS;
-  isoScal.innerHTML=cols.map((c,i)=>
-    '<input type="color" value="'+c+'" title="'+(iso.base+i*iso.step)+'-'+(iso.base+(i+1)*iso.step)+'\u00b0C">'
-  ).join('');
-  isoScal.querySelectorAll('input[type=color]').forEach(el=>{ el.oninput=isoSend; });
-}
-function thermalControls(){
-  const iso = palsel.value === 'isotherm';
-  [['profileRow',iso],['isoRow',iso],['isoColours',iso],['coloursRow',!iso]].forEach(([id,show])=>{
-    const el=document.getElementById(id); if(el) el.style.display = show ? '' : 'none';
-  });
+  const bands=(iso&&iso.bands&&iso.bands.length)?iso.bands:
+    [{lo:25,hi:30,colour:'#1f6feb'},{lo:30,hi:35,colour:'#16c4c4'},{lo:35,hi:40,colour:'#8b5cf6'}];
+  if(isoSending===0){
+    isoBox.innerHTML='';
+    bands.forEach(b=>isoBox.appendChild(isoRow(b)));
+  }
 }
 function isoRender(j){
   if(!j || !j.ok) return;
@@ -635,16 +641,21 @@ function isoRender(j){
       .map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'">'+n+'</option>').join('');
     if(j.current) isoProf.value=j.current;
   }
-  if(isoSending===0) isoRenderScal(j.iso);
-  if(typeof bandSync==='function') bandSync();
+  isoRenderScal(j.iso);
 }
+document.getElementById('isoAdd').onclick=()=>{
+  const bs=isoBands();
+  const last=bs.length?bs[bs.length-1]:{lo:25,hi:30,colour:'#ff3b30'};
+  const width=Math.max(1,(last.hi-last.lo)||5);
+  isoBox.appendChild(isoRow({lo:last.hi, hi:last.hi+width, colour:last.colour}));
+  isoSend();
+};
 const isoLoad=()=>fetch('/isotherm',{cache:'no-store'}).then(r=>r.json()).then(isoRender).catch(()=>{});
 palsel.onchange=()=>fetch('/palette?name='+encodeURIComponent(palsel.value))
   .then(r=>r.json()).then(j=>{ if(!j.ok) console.warn('palette refused:', j.error); thermalControls(); }).catch(()=>{});
 fetch('/palette').then(r=>r.json())
   .then(j=>{ if(j.ok && j.palette) palsel.value=j.palette; thermalControls(); }).catch(()=>{});
-if(isoBase) isoBase.onchange=isoSend;
-if(isoStep) isoStep.onchange=isoSend;
+
 if(isoProf) isoProf.onchange=()=>fetch('/isotherm?apply='+encodeURIComponent(isoProf.value),{cache:'no-store'})
   .then(r=>r.json()).then(isoRender).catch(()=>{});
 document.getElementById('isoSave').onclick=()=>{

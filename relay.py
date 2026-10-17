@@ -40,11 +40,19 @@ _trange = {"clip_lo": None, "clip_hi": None,   # shown at all (None = no bound)
            "iso": None}                         # isotherm band table (base/step/colours)
 
 ISO_PATH = os.path.join(os.path.dirname(CAL_PATH), "isotherm.json")
-ISO_COLOURS = ["#2657ff", "#1b9cff", "#00d4ff", "#22e0a1",
-               "#ffe14d", "#ff9f1a", "#ff4d4d", "#ff00d4"]
-ISO_BUILTIN = {"pcba 5C":   {"base": 20.0, "step": 5.0, "colours": ISO_COLOURS},
-               "fine 2.5C": {"base": 20.0, "step": 2.5, "colours": ISO_COLOURS},
-               "coarse 10C": {"base": 20.0, "step": 10.0, "colours": ISO_COLOURS[:4]}}
+ISO_PCBA = [{"lo": 25.0, "hi": 30.0, "colour": "#1f6feb"},
+            {"lo": 30.0, "hi": 35.0, "colour": "#16c4c4"},
+            {"lo": 35.0, "hi": 40.0, "colour": "#8b5cf6"},
+            {"lo": 40.0, "hi": 45.0, "colour": "#e8b48c"},
+            {"lo": 45.0, "hi": 50.0, "colour": "#ffe14d"},
+            {"lo": 50.0, "hi": 55.0, "colour": "#ff9f1a"},
+            {"lo": 55.0, "hi": 60.0, "colour": "#ff3b30"}]
+ISO_BUILTIN = {"pcba 25-60": {"bands": ISO_PCBA},
+               "fine 1C":    {"bands": [{"lo": 25.0 + i, "hi": 26.0 + i,
+                                         "colour": c} for i, c in enumerate(
+                                        ["#1f6feb", "#2f8be0", "#16c4c4", "#7fd6b0",
+                                         "#b9e08a", "#ffe14d", "#ffb347", "#ff8c42",
+                                         "#ff5e3a", "#ff3b30"])]}}
 _iso = {"current": "pcba 8", "profiles": dict(ISO_BUILTIN)}
 
 
@@ -74,9 +82,7 @@ def _apply_iso(name):
     p = _iso["profiles"].get(name)
     if not p:
         return False
-    _trange["iso"] = {"base": p.get("base", 20.0),
-                      "step": p.get("step", 5.0),
-                      "colours": list(p.get("colours") or ISO_COLOURS)}
+    _trange["iso"] = {"bands": list(p.get("bands") or ISO_PCBA)}
     _iso["current"] = name
     _save_iso()
     return True
@@ -940,17 +946,20 @@ class H(http.server.BaseHTTPRequestHandler):
                 # not silently clear the others (that made a half-filled pair look
                 # like it kept resetting itself to automatic).
                 supplied = {k: q[k][0] for k in ("clip_lo", "clip_hi", "span_lo", "span_hi") if k in q}
-                iso = dict(_trange["iso"] or {"base": 20.0, "step": 5.0, "colours": ISO_COLOURS})
-                if "base" in q:
-                    try: iso["base"] = float(q["base"][0])
-                    except Exception: pass
-                if "step" in q:
-                    try: iso["step"] = max(0.5, float(q["step"][0]))
-                    except Exception: pass
-                if "colours" in q:
-                    cs = [c.strip() for c in q["colours"][0].split(",") if c.strip()]
-                    cs = [c for c in cs if len(c) == 7 and c.startswith("#")]
-                    if cs: iso["colours"] = cs[:16]
+                iso = dict(_trange["iso"] or {"bands": list(ISO_PCBA)})
+                if "bands" in q:
+                    try:
+                        bs = json.loads(q["bands"][0])
+                        okb = [b for b in bs
+                               if isinstance(b, dict)
+                               and isinstance(b.get("colour"), str)
+                               and len(b.get("colour", "")) == 7
+                               and b.get("lo") is not None and b.get("hi") is not None]
+                        if okb:
+                            iso["bands"] = [{"lo": float(b["lo"]), "hi": float(b["hi"]),
+                                             "colour": b["colour"]} for b in okb[:32]]
+                    except Exception:
+                        pass
                 _trange["iso"] = iso
                 for alias, key in (("min", "span_lo"), ("max", "span_hi")):
                     if alias in q and key not in supplied:
@@ -985,7 +994,7 @@ class H(http.server.BaseHTTPRequestHandler):
             elif "save" in q:
                 name = (q["save"][0] or "").strip()[:40]
                 if name:
-                    _iso["profiles"][name] = dict(_trange["iso"] or {})
+                    _iso["profiles"][name] = dict(_trange["iso"] or {"bands": list(ISO_PCBA)})
                     _iso["current"] = name
                     _save_iso()
                 else:

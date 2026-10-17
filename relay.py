@@ -446,7 +446,8 @@ def _load_cal():
             "tx": float(c.get("tx", 0.0) or 0.0),
             "ty": float(c.get("ty", 0.0) or 0.0)}
 _state = {"vjpeg": None, "vts": 0.0, "tjpeg": None, "tts": 0.0,
-          "stats": None, "connected": False, "vbytes": 0, "tbytes": 0, "frames": 0}
+          "stats": None, "connected": False, "vbytes": 0, "tbytes": 0, "frames": 0,
+          "dtjpeg": None, "dtts": 0.0, "dtstats": None, "regions": []}
 _client = None                 # the live camera client (for settings read/write)
 _cfg_cache = {"at": 0.0, "cfg": None, "key": None}
 _cfg_lock = threading.RLock()   # re-entrant: the write path re-reads the config
@@ -1060,7 +1061,7 @@ class H(http.server.BaseHTTPRequestHandler):
         last = 0.0
         while True:
             with _lock:
-                j = _state[key]; t = _state[ts]
+                j = _state.get(key); t = _state.get(ts, 0.0)
             if j and t != last:
                 last = t
                 try:
@@ -1122,11 +1123,14 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def _json_out(self, status, obj):
         b = json.dumps(obj).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(b)))
-        self.end_headers()
-        self.wfile.write(b)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+        except OSError:
+            pass          # the browser hung up; nothing to salvage
 
     def _redirect(self, to, token=None):
         self.send_response(303)

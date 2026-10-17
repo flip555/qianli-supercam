@@ -1331,6 +1331,7 @@ document.getElementById('refSet').onclick=()=>{
   }).catch(()=>{});
 };
 document.getElementById('refClear').onclick=()=>{
+  if(DT_ON) setDt(false);        /* leave the delta view before its reference goes */
   fetch('/reference',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
     body:'clear=1'}).then(r=>r.json()).then(()=>{ refLoad(); }).catch(()=>{});
 };

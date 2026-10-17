@@ -44,7 +44,7 @@ def _bbox(region, W, H):
     return (max(0, min(xs)), max(0, min(ys)), min(W - 1, max(xs)), min(H - 1, max(ys)))
 
 
-def stats_for(vals, W, H, regions, scale, offset, ref_id=None):
+def stats_for(vals, W, H, regions, scale, offset, ref_id=None, ref_vals=None):
     """min/max/average per region, plus the average's difference from a reference."""
     results = []
     for region in regions or []:
@@ -52,12 +52,15 @@ def stats_for(vals, W, H, regions, scale, offset, ref_id=None):
         if not box:
             continue
         x0, y0, x1, y1 = box
-        picked = []
+        picked, deltas = [], []
         for y in range(y0, y1 + 1):
             row = y * W
             for x in range(x0, x1 + 1):
                 if _inside(region, x, y):
-                    picked.append(vals[row + x])
+                    i = row + x
+                    picked.append(vals[i])
+                    if ref_vals is not None and i < len(ref_vals):
+                        deltas.append(vals[i] - ref_vals[i])
         if not picked:
             continue
         results.append({
@@ -69,6 +72,9 @@ def stats_for(vals, W, H, regions, scale, offset, ref_id=None):
             "max_c": round(max(picked) * scale + offset, 2),
             "avg_c": round(sum(picked) / len(picked) * scale + offset, 2),
         })
+        if deltas:
+            results[-1]["dt_max_c"] = round(max(deltas) * scale, 2)
+            results[-1]["dt_avg_c"] = round(sum(deltas) / len(deltas) * scale, 2)
     if ref_id:
         ref = next((r for r in results if r["id"] == ref_id), None)
         if ref:

@@ -45,6 +45,9 @@ TRANGE_PATH = os.path.join(os.path.dirname(CAL_PATH), "trange.json")
 AUTH = Auth(os.environ.get("SUPERCAM_AUTH_PATH")
             or os.path.join(os.path.dirname(CAL_PATH), "auth.json"))
 TCAL_PATH = os.path.join(os.path.dirname(CAL_PATH), "thermal_cal.json")
+REFERENCE_RAW = os.path.join(os.path.dirname(CAL_PATH), "reference.raw")
+REFERENCE_JSON = os.path.join(os.path.dirname(CAL_PATH), "reference.json")
+_ref = None          # {"raw", "vals", "at", "stats", "scale", "offset"}
 _tcal = {"scale": SCALE, "offset": OFFSET}      # factory values unless calibrated
 
 
@@ -83,6 +86,22 @@ def _fit_tcal(points):
 
 
 _load_tcal()
+
+
+def _load_reference():
+    global _ref
+    try:
+        with open(REFERENCE_RAW, "rb") as f:
+            raw = f.read()
+        with open(REFERENCE_JSON) as f:
+            meta = json.load(f)
+        _ref = {"raw": raw, "vals": TH.values(raw), **meta}
+        print("reference frame restored (%.0f)" % (_ref.get("at") or 0), flush=True)
+    except Exception:
+        _ref = None
+
+
+_load_reference()
 
 _hist = collections.deque(maxlen=3600)   # (ts, min, max, mean) at ~1 Hz, shared by viewers
 _hist_last = 0.0
@@ -593,16 +612,29 @@ def _thermal_worker(client, sock, data):
         return
     global _hist_last
     try:
-        if _regions or _alarms:
-            ref_id = next((r["id"] for r in _regions if r.get("ref")), None)
-            res = REG.stats_for(TH.values(frames[-1]), TH.W, TH.H, _regions,
-                                _tcal["scale"], _tcal["offset"], ref_id) if _regions else []
-            with _lock:
-                _state["regions"] = res
-            _maybe_csv(res)
-            fired = AL.evaluate(_alarms, stats, res, time.time())
-            if fired:
-                _on_alarms(fired)
+        if _regions or _alarms or _ref:
+            vals = TH.values(frames[-1])
+            ref_vals = _ref["vals"] if _ref else None
+            res = []
+            if _regions:
+                ref_id = next((r["id"] for r in _regions if r.get("ref")), None)
+                res = REG.stats_for(vals, TH.W, TH.H, _regions, _tcal["scale"],
+                                    _tcal["offset"], ref_id, ref_vals)
+                with _lock:
+                    _state["regions"] = res
+                _maybe_csv(res)
+            if _alarms:
+                fired = AL.evaluate(_alarms, stats, res, time.time())
+                if fired:
+                    _on_alarms(fired)
+            if ref_vals:
+                dtimg, dtstats = TH.render_dt(vals, ref_vals, _tcal["scale"])
+                out2 = io.BytesIO()
+                dtimg.save(out2, format="JPEG", quality=80)
+                with _lock:
+                    _state["dtjpeg"] = out2.getvalue()
+                    _state["dtts"] = time.time()
+                    _state["dtstats"] = dtstats
     except Exception:
         pass
     try:
@@ -984,7 +1016,8 @@ class H(http.server.BaseHTTPRequestHandler):
                  "/reboot", "/update", "/calibration", "/palette", "/trange", "/isotherm",
                  "/whoami", "/regions", "/regions.csv", "/alarms", "/notify",
                  "/captures", "/captures.zip", "/prerecord", "/tcal",
-                 "/history.csv", "/snapshots", "/snapshot.zip")
+                 "/history.csv", "/snapshots", "/snapshot.zip",
+                 "/reference", "/dt.json", "/dt.mjpg")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
@@ -1174,7 +1207,7 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path.split("?")[0]
-        global _regions
+        global _regions, _ref
         self.role = "admin"
         try:
             if self._route_public(p):
@@ -1224,6 +1257,51 @@ class H(http.server.BaseHTTPRequestHandler):
                 _log("raw.h264 client left: %.0fs, %d KB" % (time.time()-_t0, _nb//1024))
                 with _raw_lock:
                     _raw_subs.discard(q)
+        elif p == "/reference":
+            global _ref
+            if self.command == "POST":
+                if self._form().get("clear"):
+                    _ref = None
+                    for path in (REFERENCE_RAW, REFERENCE_JSON):
+                        try:
+                            os.remove(path)
+                        except Exception:
+                            pass
+                    with _lock:
+                        _state["dtstats"] = None
+                    self._json_out(200, {"ok": True, "present": False})
+                    return
+                with _lock:
+                    raw = _state.get("traw")
+                    st = _state.get("stats")
+                if not raw:
+                    self._json_out(409, {"ok": False, "error": "no thermal frame yet"})
+                    return
+                try:
+                    meta = {"at": round(time.time(), 1), "stats": st,
+                            "scale": _tcal["scale"], "offset": _tcal["offset"]}
+                    with open(REFERENCE_RAW, "wb") as fh:
+                        fh.write(raw)
+                    with open(REFERENCE_JSON, "w") as fh:
+                        json.dump(meta, fh, indent=2, default=str)
+                    _ref = {"raw": raw, "vals": TH.values(raw), **meta}
+                    print("reference frame captured", flush=True)
+                except Exception as exc:
+                    self._json_out(500, {"ok": False, "error": str(exc)})
+                    return
+                self._json_out(200, {"ok": True, "present": True, "at": meta["at"]})
+                return
+            meta = _ref or {}
+            self._json_out(200, {"ok": True, "present": bool(_ref),
+                                 "at": meta.get("at"), "stats": meta.get("stats")})
+        elif p == "/dt.json":
+            with _lock:
+                dts = _state.get("dtstats")
+            meta = _ref or {}
+            self._json_out(200, {"ok": True, "present": bool(_ref), "at": meta.get("at"),
+                                 "stats": dts})
+        elif p == "/dt.mjpg":
+            self._jpegs("dtjpeg", "dtts")
         elif p == "/stream.mjpg":
             self._jpegs("tjpeg", "tts")
         elif p == "/video.mjpg":
@@ -1311,7 +1389,8 @@ class H(http.server.BaseHTTPRequestHandler):
                             "scale": _tcal["scale"], "offset": _tcal["offset"],
                             "user": getattr(self, "user", None),
                             "raw_bytes": len(raw) if raw else 0,
-                            "regions": list(_regions), "region_stats": region_stats}
+                            "regions": list(_regions), "region_stats": region_stats,
+                            "reference_at": (_ref or {}).get("at")}
                     with open(base + ".json", "w") as f:
                         json.dump(meta, f, indent=2, default=str)
                 except Exception as exc:

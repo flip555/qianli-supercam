@@ -187,3 +187,41 @@ def decode(frame: bytes, palette: str = "rainbow",
         "w": W, "h": H,
     }
     return img, stats
+
+
+def render_dt(vals, ref_vals, scale: float = 0.01, span: float = 10.0):
+    """Signed difference image: blue = colder than the reference, white = same,
+    red = hotter, clamped to +/- span degrees."""
+    n = min(len(vals), len(ref_vals))
+    lo = int(-span / scale)
+    hi = int(span / scale)
+    span_raw = (hi - lo) or 1
+
+    def colour(t):
+        if t < 0:
+            k = -t
+            return bytes((int(255 - 215 * k), int(255 - 170 * k), 255))
+        return bytes((255, int(255 - 215 * t), int(255 - 215 * t)))
+
+    lut = [colour(2 * i / 255.0 - 1.0) for i in range(256)]
+    rgb = bytearray(N * 3)
+    dmin = dmax = 0
+    dsum = 0
+    for i in range(N):
+        if i >= n:
+            rgb[i * 3:i * 3 + 3] = b"\xff\xff\xff"
+            continue
+        d = vals[i] - ref_vals[i]
+        if d < dmin:
+            dmin = d
+        if d > dmax:
+            dmax = d
+        dsum += d
+        b = (d - lo) * 255 // span_raw
+        b = 0 if b < 0 else 255 if b > 255 else b
+        rgb[i * 3:i * 3 + 3] = lut[b]
+    img = Image.frombytes("RGB", (W, H), bytes(rgb))
+    stats = {"dt_min_c": round(dmin * scale, 2),
+             "dt_max_c": round(dmax * scale, 2),
+             "dt_avg_c": round((dsum / N) * scale, 2)}
+    return img, stats

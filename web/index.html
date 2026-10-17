@@ -80,6 +80,9 @@
   #toast{position:fixed;right:18px;bottom:18px;max-width:380px;background:#3a1d1d;border:1px solid #7a2c2c;
     color:#ffd7d7;padding:10px 13px;border-radius:9px;font-size:13px;display:none;z-index:60;line-height:1.4}
   .stage:fullscreen{background:#000}
+  #dtBadge{position:absolute;top:10px;left:84px;background:rgba(255,209,102,.92);color:#1b1b1b;
+    font:600 11px system-ui,sans-serif;padding:3px 8px;border-radius:6px;display:none;z-index:8;
+    letter-spacing:.06em;pointer-events:none}
   #frozenBadge{position:absolute;top:10px;left:10px;background:rgba(31,111,235,.92);color:#fff;
     font:600 11px system-ui,sans-serif;padding:3px 8px;border-radius:6px;display:none;z-index:8;
     letter-spacing:.06em;pointer-events:none}
@@ -201,6 +204,7 @@
         <svg id="roiLayer" viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice"></svg>
         <div id="marks"></div>
         <div id="frozenBadge" data-i18n="label.frozen">FROZEN</div>
+        <div id="dtBadge" data-i18n="label.dt">&#916;T</div>
         <div class="readout" id="readout">&mdash;</div>
       </div>
   <p class="note" data-i18n="note.text">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
@@ -260,6 +264,14 @@
           <div id="isoBands"></div>
           <div class="bandrow"><button id="isoAdd" data-i18n="btn.add">Add</button></div>
         </div>
+        <details class="sub" open><summary data-i18n="panel.ref">Reference frame (&#916;T)</summary>
+          <div class="ctl">
+            <button id="refSet" data-i18n="btn.setRef">Set reference</button>
+            <button id="refClear" class="ghost" data-i18n="btn.clearRef">Clear</button>
+            <button id="dtView" class="ghost" data-i18n="btn.dtView">&#916;T view</button>
+          </div>
+          <p class="hint" id="refNow"></p>
+        </details>
         <details class="sub"><summary data-i18n="panel.tcal">Two-point calibration</summary>
           <p class="hint" data-i18n="tcal.hint">Measure a reference of known temperature with a point or box, enter its true temperature, then repeat with a second reference well away from it. The readings become (raw × scale) + offset.</p>
           <div class="ctl">
@@ -866,10 +878,11 @@ function roiList(stats){
     const s=(stats||[]).find(x=>x.id===r.id);
     const val=(s && s.min_c!=null) ? (s.min_c.toFixed(1)+' / '+s.avg_c.toFixed(1)+' / '+s.max_c.toFixed(1)+' \u00b0C') : '\u2014';
     const d=(s && s.delta_c!=null) ? ' <b>'+(s.delta_c>=0?'+':'')+s.delta_c.toFixed(1)+'</b>' : '';
+    const dt=(s && s.dt_avg_c!=null) ? ' \u0394T '+(s.dt_avg_c>=0?'+':'')+s.dt_avg_c.toFixed(1) : '';
     return '<div class="roirow">'+
       '<input type="radio" name="roiref" '+(r.ref?'checked':'')+' title="'+t('label.ref')+'" onchange="roiSetRef(\''+r.id+'\')">'+
       '<span class="roiname">'+(r.kind==='point'?'\u2022':'\u25ad')+' '+(r.name||r.id)+'</span>'+
-      '<span class="roival">'+val+d+'</span>'+
+      '<span class="roival">'+val+d+dt+'</span>'+
       '<button class="ghost" onclick="roiDel(\''+r.id+'\')">\u00d7</button></div>';
   }).join('');
 }
@@ -1151,7 +1164,7 @@ function setFreeze(on){
     if(thimg && thimg.complete && thimg.naturalWidth){ const d=snapSrc(thimg); if(d) thimg.src=d; }
     if(vid && vid.getAttribute && vid.getAttribute('src') && vid.naturalWidth){ const d=snapSrc(vid); if(d) vid.src=d; }
   }else{
-    if(thimg) thimg.src='/stream.mjpg?t='+Date.now();
+    if(thimg) thimg.src=thermalSrc()+'?t='+Date.now();
     if(vid && vid.getAttribute && vid.getAttribute('src') && !vcOn) vid.src='/video.mjpg?t='+Date.now();
   }
 }
@@ -1183,6 +1196,56 @@ function snapsRender(j){
 }
 function snapsLoad(){ fetch('/snapshots',{cache:'no-store'}).then(r=>r.json()).then(snapsRender).catch(()=>{}); }
 snapsLoad();
+
+/* ---- reference frame and delta-T view ---- */
+let DT_ON=false, REF={present:false, at:null};
+function thermalSrc(){ return DT_ON ? '/dt.mjpg' : '/stream.mjpg'; }
+function dtPaint(){
+  const b=document.getElementById('dtView'); if(b) b.style.background = DT_ON ? '#1f6feb' : '';
+  const badge=document.getElementById('dtBadge'); if(badge) badge.style.display = DT_ON ? 'block' : 'none';
+}
+function setDt(on){
+  DT_ON=!!on;
+  if(thimg) thimg.src=thermalSrc()+'?t='+Date.now();
+  dtPaint();
+}
+function refRender(j){
+  if(!j || !j.ok) return;
+  REF=j;
+  const el=document.getElementById('refNow');
+  if(el) el.textContent = j.present
+    ? (t('ref.taken')+' '+new Date((j.at||0)*1000).toLocaleTimeString())
+    : t('ref.none');
+  if(!j.present && DT_ON) setDt(false);
+  dtPaint();
+}
+function refLoad(){ fetch('/reference',{cache:'no-store'}).then(r=>r.json()).then(refRender).catch(()=>{}); }
+function dtLoad(){
+  if(!DT_ON) return;
+  fetch('/dt.json',{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    if(!j.ok || !j.stats) return;
+    const s=j.stats, f=v=>(v>=0?'+':'')+v.toFixed(1);
+    const r=document.getElementById('readout');
+    if(r) r.innerHTML='\u0394T max '+f(s.dt_max_c)+'\u00b0C   avg '+f(s.dt_avg_c)+'\u00b0C   min '+f(s.dt_min_c)+'\u00b0C';
+  }).catch(()=>{});
+}
+document.getElementById('refSet').onclick=()=>{
+  fetch('/reference',{method:'POST'}).then(r=>r.json()).then(j=>{
+    refLoad();
+    toast(j.ok ? t('ref.set') : (j.error || t('ref.none')));
+  }).catch(()=>{});
+};
+document.getElementById('refClear').onclick=()=>{
+  fetch('/reference',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'clear=1'}).then(r=>r.json()).then(()=>{ refLoad(); }).catch(()=>{});
+};
+document.getElementById('dtView').onclick=()=>{
+  if(!REF.present){ toast(t('ref.none')); return; }
+  setDt(!DT_ON);
+};
+refLoad();
+setInterval(refLoad, 10000);
+setInterval(dtLoad, 1000);
 
 const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElementById('clipHi'),
                spanLo:document.getElementById('spanLo'), spanHi:document.getElementById('spanHi')};

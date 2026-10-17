@@ -36,7 +36,7 @@ const mkEl = (id) => new Proxy({}, {
       default: return (k in t) ? t[k] : '';
     }
   },
-  set(t, k, v) { t[k] = v; return true; }
+  set(t, k, v) { t[k] = (k === 'value' ? String(v) : v); return true; }   // DOM coerces value to a string
 });
 const getEl = (id) => { if (!els.has(id)) els.set(id, mkEl(id)); return els.get(id); };
 
@@ -67,3 +67,27 @@ const missing = Object.entries(wired).filter(([id, ev]) => typeof getEl(id)[ev] 
 if (missing.length) { console.log('not wired: ' + missing.join(', ')); failed = true; }
 else { console.log('controls wired: ' + Object.keys(wired).length + '/' + Object.keys(wired).length); }
 process.exitCode = failed ? 1 : 0;
+
+/* --- simulate a slider drag, to check the wiring actually does something --- */
+(function(){
+  const lo = getEl('clipLoR'), hi = getEl('clipHiR');
+  if (typeof lo.oninput !== 'function' || typeof hi.oninput !== 'function') {
+    console.log('slider: no oninput handler'); failed = true; return;
+  }
+  lo.value = '30'; hi.value = '150';
+  let sent = null;
+  global.fetch = (u) => { sent = String(u); return Promise.resolve({ ok: true, json: async () => ({}), body: null, text: async () => '' }); };
+  try { lo.oninput(); } catch (e) { console.log('slider: oninput threw ' + e.message); failed = true; return; }
+  const box = getEl('clipLo').value;
+  console.log('slider: box after drag = ' + JSON.stringify(box) + '  request = ' + sent);
+  if (box !== 30 && box !== '30') { console.log('slider: the number box did not follow the slider'); failed = true; }
+  if (!sent || !/[?&]clip_lo=30/.test(sent)) { console.log('slider: request used the wrong parameter name: ' + sent); failed = true; }
+  /* and the same for the second band, whose id is spanLo/spanHi */
+  const slo = getEl('spanLoR'), shi = getEl('spanHiR');
+  slo.value = '20'; shi.value = '22.5';
+  sent = null;
+  try { slo.oninput(); } catch (e) { console.log('slider: span oninput threw ' + e.message); failed = true; }
+  if (!sent || !/[?&]span_lo=20/.test(sent)) { console.log('slider: span request used the wrong parameter name: ' + sent); failed = true; }
+  else console.log('slider: both bands send the names the relay accepts');
+  process.exitCode = failed ? 1 : 0;
+})();

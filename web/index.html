@@ -575,6 +575,10 @@ fetch('/palette').then(r=>r.json())
                which is why the colours keep their full range by default. */
 const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElementById('clipHi'),
                spanLo:document.getElementById('spanLo'), spanHi:document.getElementById('spanHi')};
+/* the element ids are camelCase; the API's parameters are not. Getting this wrong
+   sent 'clipLo=30', which the relay ignored - so every band edit silently did
+   nothing and the boxes appeared to reset themselves. */
+const BAND_API={clipLo:'clip_lo', clipHi:'clip_hi', spanLo:'span_lo', spanHi:'span_hi'};
 function applyBands(j){
   if(!j || !j.ok) return;
   for(const k in bandEls) bandEls[k].value=(j[k]==null?'':j[k]);
@@ -613,7 +617,7 @@ function sendBands(keys){
     const v=bandEls[k].value.trim();
     bandEls[k].classList.remove('bad');
     if(v!=='' && isNaN(parseFloat(v))){ bandEls[k].classList.add('bad'); return; }
-    q.push(k+'='+encodeURIComponent(v===''?'auto':v));
+    q.push(BAND_API[k]+'='+encodeURIComponent(v===''?'auto':v));
   }
   fetch('/trange?'+q.join('&'),{cache:'no-store'}).then(r=>r.json()).then(applyBands).catch(()=>{});
 }

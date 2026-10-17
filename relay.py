@@ -853,6 +853,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 self._page(authpages.login())
             return True
         self.role = sess["role"]
+        self.user = sess.get("user") or AUTH.cfg.get("username")
         if self._is_write(p) and self.role != "admin":
             self._json_out(403, {"ok": False, "error": "read-only guest account"})
             return True
@@ -861,7 +862,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def _route_authed(self, p):
         if p == "/whoami":
             self._json_out(200, {"ok": True, "role": self.role,
-                                 "username": AUTH.cfg.get("username"),
+                                 "username": getattr(self, "user", None) or AUTH.cfg.get("username"),
                                  "auth": AUTH.enabled()})
             return True
         if p == "/account":

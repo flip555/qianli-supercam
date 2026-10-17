@@ -141,6 +141,7 @@
   "ref.saved": "参考已保存为",
   "ref.set": "已采集参考帧",
   "ref.taken": "参考采集于",
+  "snap.confirm": "删除这张截图？图片、原始帧和元数据都会被删除。",
   "snap.none": "尚无截图 — 上面的按钮会连同原始帧一起保存到这里。",
   "snap.saved": "截图已保存",
   "status.connecting": "连接中…",

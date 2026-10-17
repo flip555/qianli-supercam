@@ -1609,6 +1609,18 @@ class H(http.server.BaseHTTPRequestHandler):
                     body = json.loads(self._body() or "{}")
                 except Exception:
                     body = {}
+                target = os.path.basename(str(body.get("delete") or ""))
+                if target:
+                    removed = []
+                    for ext in (".jpg", ".raw", ".json"):
+                        try:
+                            os.remove(os.path.join(SNAPSHOT_DIR, target + ext))
+                            removed.append(ext)
+                        except Exception:
+                            pass
+                    self._json_out(200 if removed else 404,
+                                   {"ok": bool(removed), "deleted": target, "removed": removed})
+                    return
                 image = body.get("image") or ""
                 if not image.startswith("data:image/jpeg;base64,"):
                     self._json_out(400, {"ok": False, "error": "expected a jpeg data URL"})

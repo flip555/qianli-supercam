@@ -141,6 +141,7 @@
   "ref.saved": "Referenz gespeichert als",
   "ref.set": "Referenzbild aufgenommen",
   "ref.taken": "Referenz aufgenommen um",
+  "snap.confirm": "Diese Aufnahme löschen? Bild, Rohbild und Metadaten werden entfernt.",
   "snap.none": "Noch keine Aufnahmen – die Schaltfläche oben speichert eine hier samt Rohbild.",
   "snap.saved": "Aufnahme gespeichert",
   "status.connecting": "verbinde…",

@@ -141,6 +141,7 @@
   "ref.saved": "Reference saved as",
   "ref.set": "Reference frame captured",
   "ref.taken": "Reference taken at",
+  "snap.confirm": "Delete this snapshot? The picture, raw frame and metadata are all removed.",
   "snap.none": "No snapshots yet — the button above saves one here with its raw frame.",
   "snap.saved": "Snapshot saved",
   "status.connecting": "connecting…",

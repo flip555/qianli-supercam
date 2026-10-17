@@ -1352,10 +1352,21 @@ function snapsRender(j){
       '<span class="roiname">'+s.name+(s.raw?' \u00b7 raw':'')+'</span>'+
       '<span class="roival">'+Math.round((s.size||0)/1024)+' KB</span>'+
       '<a class="btnlink" href="/snapshot.zip?name='+encodeURIComponent(s.name)+'">'+t('btn.download')+'</a>'+
-      '<button class="ghost opn" data-name="'+s.name+'">'+t('btn.open')+'</button></div>'
+      '<button class="ghost opn" data-name="'+s.name+'">'+t('btn.open')+'</button>'+
+      '<button class="ghost del" data-name="'+s.name+'" title="'+t('btn.delete')+'">\u00d7</button></div>'
   ).join('') : '<p class=hint>'+t('snap.none')+'</p>';
   box.querySelectorAll('.opn').forEach(b=>{
     b.onclick=()=>openReana(b.dataset.name);
+  });
+  box.querySelectorAll('.del').forEach(b=>{
+    b.onclick=()=>{
+      if(!confirm(t('snap.confirm'))) return;
+      fetch('/snapshots',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({delete:b.dataset.name})})
+        .then(r=>r.json()).then(j=>{
+          if(j.ok){ toast(t('btn.delete')+' '+b.dataset.name); snapsLoad(); }
+        }).catch(()=>{});
+    };
   });
 }
 function snapsLoad(){ fetch('/snapshots',{cache:'no-store'}).then(r=>r.json()).then(snapsRender).catch(()=>{}); }

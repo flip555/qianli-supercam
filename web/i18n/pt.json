@@ -141,6 +141,7 @@
   "ref.saved": "Referência guardada como",
   "ref.set": "Fotograma de referência capturado",
   "ref.taken": "Referência tomada às",
+  "snap.confirm": "Eliminar esta captura? A imagem, o fotograma raw e os metadados são removidos.",
   "snap.none": "Ainda sem capturas — o botão acima guarda uma aqui com o fotograma raw.",
   "snap.saved": "Captura guardada",
   "status.connecting": "a ligar…",

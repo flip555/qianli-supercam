@@ -121,7 +121,7 @@
   .roirow button{padding:1px 6px;font-size:11px}
   .hint{color:#5c6673;font-size:12px;margin:8px 0 0;line-height:1.4}
   a.btnlink{padding:6px 10px;background:#242c37;border-radius:7px;color:#c8d1dc;text-decoration:none;font-size:12px}
-  body.guest #addPoint,body.guest #addBox,body.guest #csvClear{display:none}
+  body.guest #csvClear{display:none}
   #who{color:#8b949e;font-size:12px;margin-right:12px}
   #who a{color:#8b949e}
   #who a:hover{color:#e6e8eb}
@@ -963,7 +963,7 @@ document.getElementById('addBox').onclick=()=>setRoiMode(ROIMODE==='box'?null:'b
 document.getElementById('addPoly').onclick=()=>{ POLY=[]; roiDraw(); setRoiMode(ROIMODE==='poly'?null:'poly'); };
 document.getElementById('csvClear').onclick=()=>{ fetch('/regions.csv?clear=1',{cache:'no-store'}).catch(()=>{}); };
 stage.addEventListener('pointerdown',ev=>{
-  if(!ROIMODE || AUTH_ROLE!=='admin') return;
+  if(!ROIMODE) return;
   const pt=stageToThermal(ev); if(!pt) return;
   if(ROIMODE==='point'){ roiAdd('point',[pt]); setRoiMode(null); return; }
   if(ROIMODE==='poly'){

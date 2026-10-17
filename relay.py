@@ -1073,6 +1073,10 @@ class H(http.server.BaseHTTPRequestHandler):
             time.sleep(0.02)
 
     # ---------- authentication plumbing ----------
+    # A guest may measure and take snapshots: useful work that does not reconfigure
+    # anything. Everything else stays admin-only.
+    GUEST_WRITES = ("/regions", "/snapshots")
+
     API_PATHS = ("/health", "/version", "/thermal.json", "/history.json", "/camera",
                  "/reboot", "/update", "/calibration", "/palette", "/trange", "/isotherm",
                  "/whoami", "/regions", "/regions.csv", "/alarms", "/notify",
@@ -1214,7 +1218,7 @@ class H(http.server.BaseHTTPRequestHandler):
             return True
         self.role = sess["role"]
         self.user = sess.get("user") or AUTH.cfg.get("username")
-        if self._is_write(p) and self.role != "admin":
+        if self._is_write(p) and self.role != "admin" and p not in self.GUEST_WRITES:
             self._json_out(403, {"ok": False, "error": "read-only guest account"})
             return True
         return False

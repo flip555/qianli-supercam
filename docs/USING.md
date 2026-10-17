@@ -10,8 +10,10 @@ a **setup page** until an account exists.
 
 * **Account** (in the footer) changes the username or password, turns sign-in on or off,
   and manages an optional **guest** account.
-* A **guest** may watch, change the view and take snapshots but cannot change settings,
-  the camera, the calibration or the palette. The relay enforces that, not just the page.
+* A **guest** may watch, change the view, **measure** (points, boxes and polygons) and take
+  snapshots, but cannot change settings, the camera, the calibration or the palette. The
+  relay enforces that, not just the page. Regions are shared, so a guest's measurements
+  are visible to everyone.
 * Sessions are signed cookies, so restarting the relay (an update does) does **not** sign
   you out.
 * Lost the password? On the host, in the deployment directory:

@@ -17,6 +17,8 @@ from supercam import update as UPD
 from supercam.auth import Auth, check_password
 from supercam import authpages
 from supercam import regions as REG
+from supercam import alarms as AL
+from supercam.notify import Notify
 from supercam import __version__ as VERSION
 from PIL import Image
 
@@ -114,6 +116,85 @@ def _maybe_csv(results):
 
 
 _load_regions()
+
+ALARMS_PATH = os.path.join(os.path.dirname(CAL_PATH), "alarms.json")
+NOTIFY_PATH = os.path.join(os.path.dirname(CAL_PATH), "notifications.json")
+ALARM_LOG = os.path.join(os.path.dirname(CAL_PATH), "alarms.log")
+_alarms = []
+_alarm_events = collections.deque(maxlen=50)
+NOTIFY = Notify(NOTIFY_PATH)
+
+
+def _sanitise_alarms(items):
+    out = []
+    for r in (items or [])[:16]:
+        if not isinstance(r, dict):
+            continue
+        try:
+            threshold = float(r.get("threshold"))
+            dwell = int(float(r.get("dwell_ms", 0)))
+        except Exception:
+            continue
+        out.append({
+            "id": str(r.get("id") or "a%d" % (len(out) + 1))[:32],
+            "name": str(r.get("name") or "")[:40],
+            "scope": "region" if r.get("scope") == "region" else "frame",
+            "region_id": str(r.get("region_id") or "")[:32],
+            "metric": "avg" if r.get("metric") == "avg" else "max",
+            "above": bool(r.get("above", True)),
+            "threshold": threshold,
+            "dwell_ms": max(0, min(dwell, 3600000)),
+            "enabled": bool(r.get("enabled", True)),
+        })
+    return out
+
+
+def _load_alarms():
+    global _alarms
+    try:
+        with open(ALARMS_PATH) as f:
+            _alarms = _sanitise_alarms(json.load(f))
+        print("alarms restored: %d" % len(_alarms), flush=True)
+    except Exception:
+        _alarms = []
+
+
+def _save_alarms():
+    try:
+        with open(ALARMS_PATH, "w") as f:
+            json.dump(_alarms, f)
+    except Exception:
+        pass
+
+
+def _dwell_text(ms):
+    ms = int(ms or 0)
+    if ms >= 60000 and ms % 60000 == 0:
+        return "%d min" % (ms // 60000)
+    if ms >= 1000 and ms % 1000 == 0:
+        return "%d s" % (ms // 1000)
+    return "%d ms" % ms
+
+
+def _on_alarms(fired):
+    for rule in fired:
+        where = ("region " + str(rule.get("region_id"))) if rule.get("scope") == "region" else "whole frame"
+        text = ("SuperCam alarm: %s - %s %s %.1f C (threshold %.1f C, held %s)"
+                % (rule.get("name") or rule.get("id"), where, rule.get("metric", "max"),
+                   float(rule.get("value", 0.0)), float(rule.get("threshold", 0.0)),
+                   _dwell_text(rule.get("dwell_ms"))))
+        with _lock:
+            _alarm_events.append({"t": round(time.time(), 1), "rule": rule.get("id"), "text": text})
+        try:
+            with open(ALARM_LOG, "a") as f:
+                f.write("%s\t%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), text))
+        except Exception:
+            pass
+        NOTIFY.send(list(NOTIFY.cfg.keys()), text)
+        print("alarm fired: %s" % text, flush=True)
+
+
+_load_alarms()
 
 _trange = {"clip_lo": None, "clip_hi": None,   # shown at all (None = no bound)
            "span_lo": None, "span_hi": None,   # palette span   (None = automatic)
@@ -438,13 +519,16 @@ def _thermal_worker(client, sock, data):
         return
     global _hist_last
     try:
-        if _regions:
+        if _regions or _alarms:
             ref_id = next((r["id"] for r in _regions if r.get("ref")), None)
             res = REG.stats_for(TH.values(frames[-1]), TH.W, TH.H, _regions,
-                                SCALE, OFFSET, ref_id)
+                                SCALE, OFFSET, ref_id) if _regions else []
             with _lock:
                 _state["regions"] = res
             _maybe_csv(res)
+            fired = AL.evaluate(_alarms, stats, res, time.time())
+            if fired:
+                _on_alarms(fired)
     except Exception:
         pass
     with _lock:
@@ -819,7 +903,7 @@ class H(http.server.BaseHTTPRequestHandler):
     # ---------- authentication plumbing ----------
     API_PATHS = ("/health", "/version", "/thermal.json", "/history.json", "/camera",
                  "/reboot", "/update", "/calibration", "/palette", "/trange", "/isotherm",
-                 "/whoami", "/regions", "/regions.csv")
+                 "/whoami", "/regions", "/regions.csv", "/alarms", "/notify")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
@@ -1079,6 +1163,42 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Content-Length", str(len(j)))
                 self.end_headers(); self.wfile.write(j)
+        elif p == "/alarms":
+            if self.command == "POST":
+                global _alarms
+                try:
+                    items = json.loads(self._body() or "[]")
+                except Exception:
+                    items = None
+                if not isinstance(items, list):
+                    self._json_out(400, {"ok": False, "error": "expected a JSON list"})
+                    return
+                _alarms = _sanitise_alarms(items)
+                _save_alarms()
+                print("alarms -> %d" % len(_alarms), flush=True)
+            with _lock:
+                events = list(_alarm_events)
+            self._json_out(200, {"ok": True, "alarms": _alarms, "events": events})
+        elif p == "/notify":
+            if self.command == "POST":
+                f = self._form()
+                channel = f.get("channel", "")
+                if f.get("test"):
+                    NOTIFY.send([channel] if channel in NOTIFY.cfg else [],
+                                "SuperCam test message - notifications are working.")
+                    self._json_out(200, {"ok": True, "tested": channel,
+                                         "channels": NOTIFY.status()})
+                    return
+                if channel in NOTIFY.cfg and f.get("clear"):
+                    NOTIFY.cfg.pop(channel, None)
+                    NOTIFY.save()
+                    self._json_out(200, {"ok": True, "channels": NOTIFY.status()})
+                    return
+                ok = NOTIFY.set(channel, {k: v for k, v in f.items() if k != "channel"})
+                self._json_out(200 if ok else 400,
+                               {"ok": ok, "channels": NOTIFY.status()})
+                return
+            self._json_out(200, {"ok": True, "channels": NOTIFY.status()})
         elif p == "/regions":
             if self.command == "POST":
                 global _regions

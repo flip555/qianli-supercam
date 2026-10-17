@@ -77,6 +77,23 @@
   body.guest #thermalSec,body.guest #alignSec{display:none}
   body.guest #cog{display:none}
   #roiLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  #toast{position:fixed;right:18px;bottom:18px;max-width:380px;background:#3a1d1d;border:1px solid #7a2c2c;
+    color:#ffd7d7;padding:10px 13px;border-radius:9px;font-size:13px;display:none;z-index:60;line-height:1.4}
+  .stage:fullscreen{background:#000}
+  .alarmrow{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:12px}
+  .alarmrow input[type=text]{flex:1 1 90px;min-width:70px}
+  .alarmrow input[type=number]{width:64px}
+  .alarmrow input,.alarmrow select{padding:4px 5px;font-size:12px;background:#0b0d10;border:1px solid #2b3542;
+    border-radius:6px;color:#e6e8eb}
+  .alarmrow .aen{color:#8b949e;display:flex;gap:3px;align-items:center}
+  .notrow{margin-top:10px;padding-top:8px;border-top:1px solid #1e242c}
+  .nothead{display:flex;justify-content:space-between;font-size:12px;color:#c8d1dc}
+  .notstatus{color:#5c6673}
+  .notrow input{width:100%;box-sizing:border-box;margin-top:4px;padding:5px 7px;background:#0b0d10;
+    border:1px solid #2b3542;border-radius:6px;color:#e6e8eb;font-size:12px}
+  .sub>summary{cursor:pointer;color:#8b949e;font-size:12px;margin-top:12px;list-style:none}
+  .sub>summary::-webkit-details-marker{display:none}
+  body.guest #alarmSec{display:none}
   body.roi-mode .stage{cursor:crosshair}
   #regionList{margin-top:8px}
   .roirow{display:flex;gap:6px;align-items:center;margin-top:5px;font-size:12px}
@@ -166,6 +183,7 @@
   <span class="feedmode" id="feedmode"></span>
 </header>
 <main>
+  <div id="toast"></div>
   <div class="wrap">
     <div class="view">
       <div class="stage mode-wipe" id="stage">
@@ -192,6 +210,7 @@
         </div>
         <div class="ctl"><span class="lbl" data-i18n="label.pip">PiP</span>
           <button id="size" data-i18n="pip.med">PiP: med</button></div>
+        <div class="ctl"><button id="fullscreen" data-i18n="btn.fullscreen">Fullscreen</button></div>
         <div class="ctl" id="wipewrap"><span class="lbl" data-i18n="label.split">Split</span>
           <input type="range" id="wipe" min="0" max="100" value="50"></div>
         <div class="ctl" id="fusewrap"><span class="lbl" data-i18n="label.fusion">Fusion</span>
@@ -259,6 +278,14 @@
           </div>
           <button id="chartclear" class="ghost" data-i18n="btn.clear">Clear</button>
         </div>
+      </details>
+      <details class="sec" open id="alarmSec">
+        <summary data-i18n="panel.alarm">Alarm</summary>
+        <div id="alarmList"></div>
+        <div class="ctl"><button id="alarmAdd" data-i18n="btn.addAlarm">Add alarm</button></div>
+        <details class="sub"><summary data-i18n="panel.notify">Notifications</summary>
+          <div id="notifyList"></div>
+        </details>
       </details>
       <details class="sec" id="alignSec">
         <summary data-i18n="panel.align">Align</summary>
@@ -855,6 +882,119 @@ stage.addEventListener('pointercancel',()=>{ ROIDRAG=false; ROISTART=null; roiDr
 addEventListener('keydown',ev=>{ if(ev.key==='Escape'){ setRoiMode(null); ROIDRAG=false; ROISTART=null; roiDraw(); } });
 roiLoad();
 setInterval(()=>{ if(document.getElementById('regionList')) roiLoad(); }, 3000);
+
+/* ---- alarms, notifications, fullscreen ---- */
+let ALARMS=[], ALARM_SEEN=0, toastTimer=0;
+function toast(msg){
+  const el=document.getElementById('toast'); if(!el) return;
+  el.textContent=msg; el.style.display='block';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{ el.style.display='none'; }, 8000);
+}
+function alarmRowHtml(r){
+  const regions=(ROI||[]).map(x=>'<option value="'+x.id+'"'+(r.region_id===x.id?' selected':'')+'>'+(x.name||x.id)+'</option>').join('');
+  const d=+r.dwell_ms||0;
+  let unit='1000', val=d/1000;
+  if(d && d<1000){ unit='1'; val=d; }
+  const sel=(cls,opts,cur)=>'<select class="'+cls+'">'+opts.map(([v,l])=>'<option value="'+v+'"'+(String(cur)===String(v)?' selected':'')+'>'+l+'</option>').join('')+'</select>';
+  return '<div class="alarmrow" data-id="'+(r.id||'')+'">'+
+    '<input type="text" class="aname" value="'+(r.name||'')+'" placeholder="name">'+
+    sel('ascope',[['frame',t('label.frame')],['region',t('label.region')]],r.scope)+
+    '<select class="aregion"'+(r.scope==='region'?'':' style="display:none"')+'>'+regions+'</select>'+
+    sel('ametric',[['max','max'],['avg','avg']],r.metric)+
+    sel('aabove',[['1',t('label.above')],['0',t('label.below')]],r.above===false?'0':'1')+
+    '<input type="number" class="athresh" step="0.5" value="'+(r.threshold||0)+'">'+
+    '<input type="number" class="adwell" min="0" step="1" value="'+val+'">'+
+    sel('aunit',[['1000','s'],['1','ms'],['60000','min']],unit)+
+    '<label class="aen"><input type="checkbox" '+(r.enabled!==false?'checked':'')+'> '+t('label.on')+'</label>'+
+    '<button class="ghost adel">\u00d7</button></div>';
+}
+function alarmCollect(){
+  return Array.from(document.querySelectorAll('#alarmList .alarmrow')).map(row=>{
+    const unit=+row.querySelector('.aunit').value || 1000;
+    return { id: row.dataset.id || ('a'+Math.random().toString(36).slice(2,6)),
+             name: row.querySelector('.aname').value,
+             scope: row.querySelector('.ascope').value,
+             region_id: row.querySelector('.aregion').value || '',
+             metric: row.querySelector('.ametric').value,
+             above: row.querySelector('.aabove').value==='1',
+             threshold: parseFloat(row.querySelector('.athresh').value)||0,
+             dwell_ms: Math.round((parseFloat(row.querySelector('.adwell').value)||0)*unit),
+             enabled: row.querySelector('.aen input').checked };
+  });
+}
+function alarmPush(){
+  fetch('/alarms',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(alarmCollect())}).then(r=>r.json()).then(alarmRender).catch(()=>{});
+}
+function alarmEvents(events){
+  const last=(events||[])[events.length-1];
+  if(last && last.t>ALARM_SEEN){ ALARM_SEEN=last.t; toast(last.text); }
+}
+function alarmRender(j){
+  if(!j || !j.ok) return;
+  ALARMS=j.alarms||[];
+  const box=document.getElementById('alarmList');
+  if(box){
+    box.innerHTML = ALARMS.length ? ALARMS.map(alarmRowHtml).join('') : '<p class=hint>'+t('alarm.none')+'</p>';
+    box.querySelectorAll('.alarmrow select,.alarmrow input').forEach(el=>{ el.onchange=alarmPush; });
+    box.querySelectorAll('.alarmrow .ascope').forEach(el=>{
+      el.onchange=()=>{ el.parentElement.querySelector('.aregion').style.display = el.value==='region'?'':'none'; alarmPush(); };
+    });
+    box.querySelectorAll('.alarmrow .adel').forEach((b,i)=>{ b.onclick=()=>{ ALARMS.splice(i,1); alarmPush(); }; });
+  }
+  alarmEvents(j.events);
+}
+function alarmLoad(){ fetch('/alarms',{cache:'no-store'}).then(r=>r.json()).then(alarmRender).catch(()=>{}); }
+document.getElementById('alarmAdd').onclick=()=>{
+  ALARMS.push({id:'a'+Math.random().toString(36).slice(2,6),name:'',scope:'frame',region_id:'',
+    metric:'max',above:true,threshold:45,dwell_ms:5000,enabled:true});
+  alarmPush();
+};
+function notifyRender(j){
+  const box=document.getElementById('notifyList'); if(!box) return;
+  const ch=(j && j.channels)||{};
+  const mk=(name,fields)=>{
+    const st=ch[name]||{};
+    return '<div class="notrow" data-ch="'+name+'"><div class="nothead"><b>'+name+'</b><span class="notstatus">'+
+      (st.configured?('configured \u00b7 '+(st.detail||'')):'not set')+'</span></div>'+
+      fields.map(([k,ph,type])=>'<input type="'+type+'" data-k="'+k+'" placeholder="'+ph+'">').join('')+
+      '<div class="ctl"><button class="nsave">'+t('btn.save')+'</button>'+
+      '<button class="ntest ghost">'+t('btn.test')+'</button>'+
+      (st.configured?'<button class="nclear ghost">'+t('btn.delete')+'</button>':'')+'</div></div>';
+  };
+  box.innerHTML = mk('discord',[['webhook','Discord webhook URL','url']]) +
+                  mk('slack',[['webhook','Slack webhook URL','url']]) +
+                  mk('telegram',[['token','Bot token','password'],['chat_id','Chat id','text']]);
+  box.querySelectorAll('.notrow').forEach(el=>{
+    const name=el.dataset.ch;
+    el.querySelector('.nsave').onclick=()=>{
+      const fd=new FormData(); fd.append('channel',name);
+      el.querySelectorAll('input[data-k]').forEach(i=>{ if(i.value.trim()) fd.append(i.dataset.k,i.value.trim()); });
+      fetch('/notify',{method:'POST',body:fd}).then(r=>r.json()).then(notifyRender).catch(()=>{});
+    };
+    el.querySelector('.ntest').onclick=()=>{
+      const fd=new FormData(); fd.append('channel',name); fd.append('test','1');
+      fetch('/notify',{method:'POST',body:fd}).then(r=>r.json()).then(j2=>{ notifyRender(j2); toast('test \u2192 '+name); }).catch(()=>{});
+    };
+    const cl=el.querySelector('.nclear');
+    if(cl) cl.onclick=()=>{ const fd=new FormData(); fd.append('channel',name); fd.append('clear','1');
+      fetch('/notify',{method:'POST',body:fd}).then(r=>r.json()).then(notifyRender).catch(()=>{}); };
+  });
+}
+function notifyLoad(){ fetch('/notify',{cache:'no-store'}).then(r=>r.json()).then(notifyRender).catch(()=>{}); }
+alarmLoad(); notifyLoad();
+setInterval(alarmLoad, 3000);
+
+function toggleFullscreen(){
+  if(document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); return; }
+  if(stage.requestFullscreen){ stage.requestFullscreen().catch(()=>{}); }
+}
+document.getElementById('fullscreen').onclick=toggleFullscreen;
+document.addEventListener('fullscreenchange',()=>{ setTimeout(()=>{ try{ layout(); drawChart(); }catch(e){} }, 150); });
+addEventListener('keydown',ev=>{
+  if((ev.key==='f'||ev.key==='F') && !/input|select|textarea/i.test((ev.target.tagName||''))) toggleFullscreen();
+});
 
 const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElementById('clipHi'),
                spanLo:document.getElementById('spanLo'), spanHi:document.getElementById('spanHi')};

@@ -74,8 +74,10 @@ Choose **isotherm** in the Palette list to paint a colour per temperature band.
 
 ## Measuring
 
-**Measure** → `Point` or `Box`, then click or drag on the thermal image.
+**Measure** → `Point`, `Box` or `Polygon`, then draw on the thermal image.
 
+* **Point** — click once; **Box** — click and drag; **Polygon** — click each vertex, then
+  click the first point again or press `Enter` to close (`Esc` cancels)
 * Each region gets a row with live **min / average / max**, and a **delta** against
   whichever region is marked as the reference (the radio).
 * **CSV** downloads the log: one row per region per second, rotating at 10 MB.
@@ -85,7 +87,8 @@ Choose **isotherm** in the Palette list to paint a colour per temperature band.
 
 An hour of **max / average / min**, kept by the relay at one sample a second, so every
 viewer sees the same history — including samples from before they opened the page.
-Choose a 1M / 5M / 10M / 1H window; **Clear** empties it for everyone (admin only).
+Choose a 1M / 5M / 10M / 1H window; **CSV** downloads the retained hour as
+`temperature.csv`; **Clear** empties it for everyone (admin only).
 
 ## Aligning the feeds
 
@@ -148,8 +151,12 @@ If the readings are offset (or plain wrong), calibrate against two references:
 
 ## Snapshots
 
-**Capture → Snapshot** saves what you actually see: the current mode, split, fusion,
-calibration, temperature labels and readout — not one raw feed.
+**Capture → Snapshot** saves what you actually see — the current mode, split, fusion,
+calibration, temperature labels and readout — and does two things: downloads a JPEG, and
+stores the snapshot on the relay with its **raw 16-bit thermal frame** and a metadata
+sidecar (palette, bands, calibration, stats). Stored snapshots appear as a gallery under
+Capture, each downloadable as a zip of picture, raw frame and metadata. The raw frame is
+what makes a snapshot re-analysable later; the in-GUI re-analysis view is not built yet.
 
 ## Updating
 

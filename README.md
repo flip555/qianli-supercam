@@ -117,8 +117,10 @@ A profile is a list of rows, each `lower ~ upper` with its own colour; `Add band
 continues from the previous row. `Save as…` names the current bands and `Delete` removes
 your own (built-ins are protected). `pcba 25-60` and `fine 1C` ship with the project.
 
-**Chart** keeps the last hour of max / average / min in the browser, with 1M / 5M / 10M /
-1H windows and a `Clear` button — a reload does not lose it.
+**Chart** keeps the last hour of max / average / min **on the relay**, at one sample a
+second, so every viewer sees the same history — including samples from before they
+opened the page — with 1M / 5M / 10M / 1H windows. `Clear` empties it for everyone and
+is admin-only.
 
 **Align** — a nudge pad (0.5 % a press), Rotate, Flip H, Flip V, and the scale and offset
 sliders. `Reset to saved` returns to the stored alignment; `Centre` is the hard 1×/0/0

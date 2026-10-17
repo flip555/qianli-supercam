@@ -320,6 +320,7 @@ function applyI18N(){
   try{ const sz=document.getElementById('size'); if(sz) sz.textContent=t('pip.'+pi); }catch(e){}
   const kv=document.getElementById('camkv');
   if(kv && !kv.dataset.filled) kv.innerHTML='<b>'+t('cam.status')+'</b><span>'+t('cam.reading')+'</span>';
+  try{ renderWho(); }catch(e){}
 }
 async function loadLang(lang){
   LANG=lang;
@@ -584,23 +585,27 @@ async function doUpdate(){
     if(Date.now()-t0>150000){ clearInterval(t); verEl.textContent=t('update.failed'); verEl.title=t('update.failed.title'); }
   },3000);
 }
-let AUTH_ROLE='admin';
+let AUTH_ROLE='admin', ME=null;
+function renderWho(){
+  const who=document.getElementById('who'); if(!who) return;
+  if(!ME){ who.innerHTML=''; return; }
+  who.innerHTML=t('auth.signedInAs',{name:ME.username||'admin'})+
+    (AUTH_ROLE==='guest' ? ' <b>'+t('auth.viewOnly')+'</b>' : '')+
+    ' · <a href="/account">'+t('auth.account')+'</a> · <a href="/logout">'+t('btn.signOut')+'</a>';
+}
 async function whoami(){
   try{
     const j=await (await fetch('/whoami',{cache:'no-store'})).json();
     AUTH_ROLE=j.role||'admin';
+    ME=j;
     document.body.classList.toggle('guest', AUTH_ROLE==='guest');
-    const who=document.getElementById('who');
-    if(who){
-      who.innerHTML=t('auth.signedInAs',{name:j.username||'admin'})+
-        (AUTH_ROLE==='guest' ? ' <b>'+t('auth.viewOnly')+'</b>' : '')+
-        ' · <a href="/account">'+t('auth.account')+'</a> · <a href="/logout">'+t('btn.signOut')+'</a>';
-    }
+    renderWho();
     if(AUTH_ROLE!=='admin'){
       const tw=document.getElementById('thermalSec'), aw=document.getElementById('alignSec');
       if(tw) tw.style.display='none';
       if(aw) aw.style.display='none';
       const cog=document.getElementById('cog'); if(cog) cog.style.display='none';
+      const clr=document.getElementById('chartclear'); if(clr) clr.style.display='none';
     }
   }catch(e){}
 }
@@ -818,21 +823,20 @@ let histWin=600, histDirty=false;
 const HIST_KEY='supercam.hist';
 const chartEl=document.getElementById('chart'), chartCtx=chartEl.getContext('2d');
 const chartLegend=document.getElementById('chartlegend');
-function histLoad(){
+let histSynced=0;
+async function histLoad(){
   try{
-    const a=JSON.parse(localStorage.getItem(HIST_KEY)||'[]');
-    if(Array.isArray(a)){ HIST.length=0; a.slice(-HIST_MAX).forEach(p=>{
-      if(p && typeof p.max==='number') HIST.push({max:p.max,avg:p.avg,min:p.min}); }); }
+    const j=await (await fetch('/history.json',{cache:'no-store'})).json();
+    if(Array.isArray(j.samples)){
+      HIST.length=0;
+      j.samples.forEach(s=>{ if(typeof s[2]==='number') HIST.push({max:s[2],avg:s[3],min:s[1]}); });
+      histSynced=Date.now(); drawChart();
+    }
   }catch(e){}
   try{ const w=+localStorage.getItem(HIST_KEY+'.win'); if(w>=60&&w<=3600) histWin=w; }catch(e){}
 }
-function histSave(){
-  if(!histDirty) return;
-  histDirty=false;
-  try{ localStorage.setItem(HIST_KEY, JSON.stringify(HIST.slice(-HIST_MAX))); }catch(e){}
-}
-setInterval(histSave, 5000);
 histLoad();
+setInterval(()=>{ if(Date.now()-histSynced>60000) histLoad(); }, 15000);
 
 function drawChart(){
   const w=chartEl.clientWidth||300, h=chartEl.clientHeight||110;
@@ -880,8 +884,9 @@ document.querySelectorAll('#chartwin button').forEach(b=>{
     drawChart();
   };
 });
-document.getElementById('chartclear').onclick=()=>{
-  HIST.length=0; histDirty=true; histSave(); drawChart();
+document.getElementById('chartclear').onclick=async()=>{
+  try{ await fetch('/history.json?clear=1',{cache:'no-store'}); }catch(e){}
+  HIST.length=0; drawChart();
 };
 let saveTimer=null;
 const saveSoon=()=>{ clearTimeout(saveTimer); saveTimer=setTimeout(saveCal,700); };
@@ -944,7 +949,6 @@ function tick(){
       lastStats=s; renderMarks(s);
       HIST.push({max:s.max_c, avg:s.mean_c, min:s.min_c});
       if(HIST.length>HIST_MAX) HIST.shift();
-      histDirty=true;
       drawChart();
     }
   }).catch(()=>{ meta.textContent=t('status.noStatus'); });

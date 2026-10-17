@@ -40,6 +40,9 @@ _palette = {"name": PALETTE}          # live palette - the GUI can change it
 TRANGE_PATH = os.path.join(os.path.dirname(CAL_PATH), "trange.json")
 AUTH = Auth(os.environ.get("SUPERCAM_AUTH_PATH")
             or os.path.join(os.path.dirname(CAL_PATH), "auth.json"))
+_hist = collections.deque(maxlen=3600)   # (ts, min, max, mean) at ~1 Hz, shared by viewers
+_hist_last = 0.0
+
 _trange = {"clip_lo": None, "clip_hi": None,   # shown at all (None = no bound)
            "span_lo": None, "span_hi": None,   # palette span   (None = automatic)
            "iso": None}                         # isotherm band table (base/step/colours)
@@ -353,9 +356,14 @@ def _thermal_worker(client, sock, data):
         jpeg = out.getvalue()
     except Exception:
         return
+    global _hist_last
     with _lock:
         _state["tjpeg"] = jpeg; _state["tts"] = time.time()
         _state["stats"] = stats; _state["frames"] += 1
+        now = time.time()
+        if now - _hist_last >= 1.0:
+            _hist_last = now
+            _hist.append((round(now, 1), stats["min_c"], stats["max_c"], stats["mean_c"]))
 
 
 def stream_loop(client) -> None:
@@ -719,15 +727,16 @@ class H(http.server.BaseHTTPRequestHandler):
             time.sleep(0.02)
 
     # ---------- authentication plumbing ----------
-    API_PATHS = ("/health", "/version", "/thermal.json", "/camera", "/reboot", "/update",
-                 "/calibration", "/palette", "/trange", "/isotherm", "/whoami")
+    API_PATHS = ("/health", "/version", "/thermal.json", "/history.json", "/camera",
+                 "/reboot", "/update", "/calibration", "/palette", "/trange", "/isotherm",
+                 "/whoami")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
 
     # These endpoints take their writes as GET query strings (the GUI calls them
     # that way), so "POST means write" is not enough to keep a guest read-only.
-    QUERY_WRITES = ("/palette", "/trange", "/isotherm", "/calibration")
+    QUERY_WRITES = ("/palette", "/trange", "/isotherm", "/calibration", "/history.json")
 
     def _is_write(self, p):
         if self.command == "POST":
@@ -978,6 +987,23 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Content-Length", str(len(j)))
                 self.end_headers(); self.wfile.write(j)
+        elif p == "/history.json":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if "clear" in q:
+                with _lock:
+                    _hist.clear()
+            try:
+                since = float((q.get("since") or ["0"])[0] or 0)
+            except Exception:
+                since = 0.0
+            with _lock:
+                samples = [list(x) for x in _hist if x[0] >= since]
+            out = json.dumps({"ok": True, "samples": samples}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers(); self.wfile.write(out)
         elif p == "/thermal.json":
             with _lock:
                 s = dict(_state)

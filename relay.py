@@ -664,6 +664,11 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.path.split("?")[0]
         if p in ("/", "/index.html"):
+            # which front door a browser came through decides whether it can use
+            # WebCodecs at all (it needs a secure context), so log it
+            _log("page: host=%s proto=%s ua=%s" % (self.headers.get("Host", "?"),
+                                                   self.headers.get("X-Forwarded-Proto", "http"),
+                                                   self.headers.get("User-Agent", "?")[:40]))
             b = _page()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

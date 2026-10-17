@@ -76,6 +76,17 @@
   .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
   body.guest #thermalSec,body.guest #alignSec{display:none}
   body.guest #cog{display:none}
+  #roiLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  body.roi-mode .stage{cursor:crosshair}
+  #regionList{margin-top:8px}
+  .roirow{display:flex;gap:6px;align-items:center;margin-top:5px;font-size:12px}
+  .roirow .roiname{flex:0 0 auto;color:#c8d1dc}
+  .roirow .roival{flex:1 1 auto;text-align:right;color:#8b949e;font:11px ui-monospace,Menlo,monospace}
+  .roirow .roival b{color:#ffd166}
+  .roirow button{padding:1px 6px;font-size:11px}
+  .hint{color:#5c6673;font-size:12px;margin:8px 0 0;line-height:1.4}
+  a.btnlink{padding:6px 10px;background:#242c37;border-radius:7px;color:#c8d1dc;text-decoration:none;font-size:12px}
+  body.guest #addPoint,body.guest #addBox,body.guest #csvClear{display:none}
   #who{color:#8b949e;font-size:12px;margin-right:12px}
   #who a{color:#8b949e}
   #who a:hover{color:#e6e8eb}
@@ -162,6 +173,7 @@
           <canvas id="vidcanvas"></canvas></div>
         <img id="thimg" src="/stream.mjpg" data-i18n-alt="img.thermal" alt="thermal" draggable="false">
         <div class="wipebar" id="wipebar"></div>
+        <svg id="roiLayer" viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice"></svg>
         <div id="marks"></div>
         <div class="readout" id="readout">&mdash;</div>
       </div>
@@ -220,6 +232,18 @@
             <button id="isoDelete" class="ghost" data-i18n="btn.delete">Delete</button></div>
           <div id="isoBands"></div>
           <div class="bandrow"><button id="isoAdd" data-i18n="btn.add">Add</button></div>
+        </div>
+      </details>
+      <details class="sec" open id="measureSec">
+        <summary data-i18n="panel.measure">Measure</summary>
+        <div class="ctl">
+          <button id="addPoint" data-i18n="btn.point">Point</button>
+          <button id="addBox" data-i18n="btn.box">Box</button>
+        </div>
+        <div id="regionList"></div>
+        <div class="ctl">
+          <a class="btnlink" href="/regions.csv" download data-i18n="btn.csv">CSV</a>
+          <button id="csvClear" class="ghost" data-i18n="btn.clearLog">Clear log</button>
         </div>
       </details>
       <details class="sec" open>
@@ -632,6 +656,7 @@ function setMode(m,save){
   document.getElementById('fusewrap').classList.toggle('on', m==='fusion'||m==='wipe'||m==='pip');
   document.getElementById('size').style.display  = (m==='pip') ? '' : 'none';
   layout(); renderMarks(lastStats);
+  try{ thermalControls(); }catch(e){}
   if(save){ try{ localStorage.setItem(MODE_KEY,m); }catch(e){} }
 }
 document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>setMode(b.dataset.mode,true));
@@ -692,6 +717,18 @@ document.getElementById('isoAdd').onclick=()=>{
   isoSend();
 };
 const isoLoad=()=>fetch('/isotherm',{cache:'no-store'}).then(r=>r.json()).then(isoRender).catch(()=>{});
+function thermalControls(){
+  const iso = (typeof palsel!=='undefined' && palsel.value==='isotherm');
+  [['profileRow',iso],['coloursRow',!iso]].forEach(([id,show])=>{
+    const el=document.getElementById(id); if(el) el.style.display = show ? '' : 'none';
+  });
+  const bands=document.getElementById('isoBands');
+  if(bands) bands.style.display = iso ? '' : 'none';
+  const add=document.getElementById('isoAdd');
+  if(add) add.parentElement.style.display = iso ? '' : 'none';
+  const ms=document.getElementById('measureSec');
+  if(ms) ms.style.display = (stage.className.indexOf('mode-video')<0) ? '' : 'none';
+}
 palsel.onchange=()=>fetch('/palette?name='+encodeURIComponent(palsel.value))
   .then(r=>r.json()).then(j=>{ if(!j.ok) console.warn('palette refused:', j.error); thermalControls(); }).catch(()=>{});
 fetch('/palette').then(r=>r.json())
@@ -716,6 +753,109 @@ isoLoad();
                look only at what is above 35 C). Either bound may be blank = auto.
      Colours - what the palette spans. Blank = whatever survives the Show clip,
                which is why the colours keep their full range by default. */
+/* ---- regions of interest: drawn here, measured on the relay ---- */
+let ROI=[], ROIMODE=null, ROISTART=null, ROIDRAG=false;
+const roiLayer=document.getElementById('roiLayer');
+function stageToThermal(ev){
+  const r=stage.getBoundingClientRect();
+  const sc=Math.max(r.width/160, r.height/120);
+  const ox=(r.width-160*sc)/2, oy=(r.height-120*sc)/2;
+  const x=Math.round(((ev.clientX-r.left)-ox)/sc), y=Math.round(((ev.clientY-r.top)-oy)/sc);
+  return (x>=0&&x<160&&y>=0&&y<120)?[x,y]:null;
+}
+function roiDraw(){
+  if(!roiLayer) return;
+  const parts=ROI.map(r=>{
+    const col=r.ref?'#7fd1ff':'#ffd166';
+    if(r.kind==='point'){
+      const p=r.pts[0];
+      return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="2.5" fill="none" stroke="'+col+'" stroke-width="1.5"/>';
+    }
+    if(r.kind==='rect'){
+      const a=r.pts[0], b=r.pts[1];
+      return '<rect x="'+Math.min(a[0],b[0])+'" y="'+Math.min(a[1],b[1])+'" width="'+Math.abs(a[0]-b[0])+
+             '" height="'+Math.abs(a[1]-b[1])+'" fill="none" stroke="'+col+'" stroke-width="1.5"/>';
+    }
+    return '';
+  });
+  if(ROIDRAG && ROISTART){
+    parts.push('<rect x="'+ROISTART[0]+'" y="'+ROISTART[1]+'" width="0" height="0" id="roiPrev" fill="none" stroke="#ffd166" stroke-width="1"/>');
+  }
+  roiLayer.innerHTML=parts.join('');
+}
+function roiPush(){
+  fetch('/regions',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(ROI)}).then(r=>r.json())
+    .then(j=>{ if(j.ok && j.regions){ ROI=j.regions; roiDraw(); } }).catch(()=>{});
+}
+function roiList(stats){
+  const box=document.getElementById('regionList'); if(!box) return;
+  if(!ROI.length){ box.innerHTML='<p class=hint>'+t('measure.hint')+'</p>'; return; }
+  box.innerHTML=ROI.map(r=>{
+    const s=(stats||[]).find(x=>x.id===r.id);
+    const val=(s && s.min_c!=null) ? (s.min_c.toFixed(1)+' / '+s.avg_c.toFixed(1)+' / '+s.max_c.toFixed(1)+' \u00b0C') : '\u2014';
+    const d=(s && s.delta_c!=null) ? ' <b>'+(s.delta_c>=0?'+':'')+s.delta_c.toFixed(1)+'</b>' : '';
+    return '<div class="roirow">'+
+      '<input type="radio" name="roiref" '+(r.ref?'checked':'')+' title="'+t('label.ref')+'" onchange="roiSetRef(\''+r.id+'\')">'+
+      '<span class="roiname">'+(r.kind==='point'?'\u2022':'\u25ad')+' '+(r.name||r.id)+'</span>'+
+      '<span class="roival">'+val+d+'</span>'+
+      '<button class="ghost" onclick="roiDel(\''+r.id+'\')">\u00d7</button></div>';
+  }).join('');
+}
+function roiSetRef(id){ ROI.forEach(r=>{ r.ref=(r.id===id); }); roiPush(); }
+function roiDel(id){ ROI=ROI.filter(r=>r.id!==id); roiPush(); }
+function roiAdd(kind,pts){
+  const id='r'+Date.now().toString(36).slice(-4);
+  ROI.push({id:id,kind:kind,pts:pts,name:(kind==='point'?'P':'B')+(ROI.length+1),ref:false});
+  roiPush(); roiList([]);
+}
+async function roiLoad(){
+  try{
+    const j=await (await fetch('/regions',{cache:'no-store'})).json();
+    if(j.ok){ ROI=j.regions||[]; roiDraw(); roiList(j.stats||[]); }
+  }catch(e){}
+}
+function setRoiMode(m){
+  ROIMODE=m;
+  document.body.classList.toggle('roi-mode', !!m);
+  const a=document.getElementById('addPoint'), b=document.getElementById('addBox');
+  if(a) a.style.background = (m==='point')?'#1f6feb':'';
+  if(b) b.style.background = (m==='box')?'#1f6feb':'';
+}
+document.getElementById('addPoint').onclick=()=>setRoiMode(ROIMODE==='point'?null:'point');
+document.getElementById('addBox').onclick=()=>setRoiMode(ROIMODE==='box'?null:'box');
+document.getElementById('csvClear').onclick=()=>{ fetch('/regions.csv?clear=1',{cache:'no-store'}).catch(()=>{}); };
+stage.addEventListener('pointerdown',ev=>{
+  if(!ROIMODE || AUTH_ROLE!=='admin') return;
+  const pt=stageToThermal(ev); if(!pt) return;
+  if(ROIMODE==='point'){ roiAdd('point',[pt]); setRoiMode(null); return; }
+  ROIDRAG=true; ROISTART=pt; roiDraw();
+  try{ stage.setPointerCapture(ev.pointerId); }catch(e){}
+  ev.preventDefault();
+});
+stage.addEventListener('pointermove',ev=>{
+  if(!ROIDRAG || !ROISTART) return;
+  const pt=stageToThermal(ev); if(!pt) return;
+  const p=document.getElementById('roiPrev');
+  if(p){
+    p.setAttribute('x',Math.min(ROISTART[0],pt[0])); p.setAttribute('y',Math.min(ROISTART[1],pt[1]));
+    p.setAttribute('width',Math.abs(pt[0]-ROISTART[0])); p.setAttribute('height',Math.abs(pt[1]-ROISTART[1]));
+  }
+});
+stage.addEventListener('pointerup',ev=>{
+  if(!ROIDRAG) return;
+  ROIDRAG=false;
+  const pt=stageToThermal(ev)||ROISTART;
+  const x0=ROISTART[0], y0=ROISTART[1];
+  if(Math.abs(pt[0]-x0)>=2 && Math.abs(pt[1]-y0)>=2) roiAdd('rect',[[x0,y0],pt]);
+  else { ROISTART=null; roiDraw(); }
+  setRoiMode(null);
+});
+stage.addEventListener('pointercancel',()=>{ ROIDRAG=false; ROISTART=null; roiDraw(); setRoiMode(null); });
+addEventListener('keydown',ev=>{ if(ev.key==='Escape'){ setRoiMode(null); ROIDRAG=false; ROISTART=null; roiDraw(); } });
+roiLoad();
+setInterval(()=>{ if(document.getElementById('regionList')) roiLoad(); }, 3000);
+
 const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElementById('clipHi'),
                spanLo:document.getElementById('spanLo'), spanHi:document.getElementById('spanHi')};
 /* the element ids are camelCase; the API's parameters are not. Getting this wrong
@@ -794,7 +934,7 @@ wr.oninput=e=>setSplit(e.target.value);
 let drag=false;
 const move=e=>{ if(!drag)return; const r=stage.getBoundingClientRect();
   setSplit(Math.max(0,Math.min(100,((e.touches?e.touches[0].clientX:e.clientX)-r.left)/r.width*100))); };
-wb.addEventListener('mousedown',e=>{ drag=true; e.preventDefault(); });
+wb.addEventListener('mousedown',e=>{ if(ROIMODE) return; drag=true; e.preventDefault(); });
 wb.addEventListener('touchstart',e=>{ drag=true; e.preventDefault(); },{passive:false});
 document.addEventListener('selectstart',e=>{ if(drag) e.preventDefault(); });
 addEventListener('mousemove',move); addEventListener('touchmove',move);

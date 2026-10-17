@@ -71,6 +71,8 @@
   #wipewrap{display:none}
   #wipewrap.on{display:flex}
   #calwrap input[type=range]{width:110px}
+  #trangewrap input[type=number]{width:62px;padding:5px 6px;font-size:12px}
+  #trangewrap input.bad{border-color:#e5484d}
   #calwrap label{color:#8b949e;font-size:12px}
   input[type=range]{accent-color:#4a80f0}
   .note{color:#8b949e;margin-top:14px;font-size:13px}
@@ -474,22 +476,36 @@ palsel.onchange=()=>fetch('/palette?name='+encodeURIComponent(palsel.value))
 fetch('/palette').then(r=>r.json())
   .then(j=>{ if(j.ok && j.palette) palsel.value=j.palette; }).catch(()=>{});
 
-/* thermal temperature band: colour between two temperatures, white outside */
+/* thermal temperature band: colour between two temperatures, white outside.
+   Note: onchange fires when a box is left, so a single filled box must NOT be
+   read as "clear the band" - only a complete, sane pair is sent. */
 const tminEl=document.getElementById('tmin'), tmaxEl=document.getElementById('tmax');
+function applyBand(j){
+  if(!j || !j.ok) return;
+  tminEl.value=(j.min==null?'':j.min);
+  tmaxEl.value=(j.max==null?'':j.max);
+  tminEl.placeholder=tmaxEl.placeholder=(j.auto?'auto':'');
+}
 function sendBand(){
-  const lo=tminEl.value.trim(), hi=tmaxEl.value.trim();
-  const url=(!lo || !hi) ? '/trange?auto=1'
-          : ('/trange?min='+encodeURIComponent(lo)+'&max='+encodeURIComponent(hi));
-  fetch(url,{cache:'no-store'}).then(r=>r.json()).then(j=>{
-    if(j.ok){ tminEl.value=(j.min==null?'':j.min); tmaxEl.value=(j.max==null?'':j.max); }
-    else { console.warn('temperature band refused:', j.error); }
-  }).catch(()=>{});
+  const lo=parseFloat(tminEl.value), hi=parseFloat(tmaxEl.value);
+  const half=(tminEl.value.trim()===''||tmaxEl.value.trim()==='');
+  tminEl.classList.remove('bad'); tmaxEl.classList.remove('bad');
+  if(half || isNaN(lo) || isNaN(hi)){          /* wait until both are filled in */
+    if(!half && (isNaN(lo)||isNaN(hi))) (isNaN(lo)?tminEl:tmaxEl).classList.add('bad');
+    return;
+  }
+  if(hi<=lo){ tmaxEl.classList.add('bad'); console.warn('band: max must exceed min'); return; }
+  fetch('/trange?min='+encodeURIComponent(lo)+'&max='+encodeURIComponent(hi),{cache:'no-store'})
+    .then(r=>r.json()).then(applyBand).catch(()=>{});
 }
 tminEl.onchange=sendBand; tmaxEl.onchange=sendBand;
-document.getElementById('trauto').onclick=()=>{ tminEl.value=''; tmaxEl.value=''; sendBand(); };
-fetch('/trange',{cache:'no-store'}).then(r=>r.json())
-  .then(j=>{ if(j.ok){ tminEl.value=(j.min==null?'':j.min); tmaxEl.value=(j.max==null?'':j.max); } })
-  .catch(()=>{});
+tminEl.onkeydown=tmaxEl.onkeydown=e=>{ if(e.key==='Enter') sendBand(); };
+document.getElementById('trauto').onclick=()=>{
+  tminEl.value=''; tmaxEl.value='';
+  tminEl.classList.remove('bad'); tmaxEl.classList.remove('bad');
+  fetch('/trange?auto=1',{cache:'no-store'}).then(r=>r.json()).then(applyBand).catch(()=>{});
+};
+fetch('/trange',{cache:'no-store'}).then(r=>r.json()).then(applyBand).catch(()=>{});
 
 /* wipe (off by default) */
 const wb=document.getElementById('wipebar'), wr=document.getElementById('wipe');

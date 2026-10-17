@@ -255,6 +255,20 @@
           <div id="isoBands"></div>
           <div class="bandrow"><button id="isoAdd" data-i18n="btn.add">Add</button></div>
         </div>
+        <details class="sub"><summary data-i18n="panel.tcal">Two-point calibration</summary>
+          <p class="hint" data-i18n="tcal.hint">Measure a reference of known temperature with a point or box, enter its true temperature, then repeat with a second reference well away from it. The readings become (raw × scale) + offset.</p>
+          <div class="ctl">
+            <select id="tcalRegion"></select>
+            <input type="number" id="tcalTrue" step="0.1" placeholder="°C" style="width:76px">
+            <button id="tcalAdd" data-i18n="btn.addPoint">Add point</button>
+          </div>
+          <div id="tcalPoints"></div>
+          <div class="ctl">
+            <button id="tcalApply" data-i18n="btn.apply">Apply</button>
+            <button id="tcalReset" class="ghost" data-i18n="btn.factory">Factory</button>
+          </div>
+          <p class="hint" id="tcalNow"></p>
+        </details>
       </details>
       <details class="sec" open id="measureSec">
         <summary data-i18n="panel.measure">Measure</summary>
@@ -795,7 +809,7 @@ isoLoad();
      Colours - what the palette spans. Blank = whatever survives the Show clip,
                which is why the colours keep their full range by default. */
 /* ---- regions of interest: drawn here, measured on the relay ---- */
-let ROI=[], ROIMODE=null, ROISTART=null, ROIDRAG=false;
+let ROI=[], ROI_STATS=[], ROIMODE=null, ROISTART=null, ROIDRAG=false;
 const roiLayer=document.getElementById('roiLayer');
 function stageToThermal(ev){
   const r=stage.getBoundingClientRect();
@@ -853,7 +867,8 @@ function roiAdd(kind,pts){
 async function roiLoad(){
   try{
     const j=await (await fetch('/regions',{cache:'no-store'})).json();
-    if(j.ok){ ROI=j.regions||[]; roiDraw(); roiList(j.stats||[]); }
+    if(j.ok){ ROI=j.regions||[]; ROI_STATS=j.stats||[]; roiDraw(); roiList(ROI_STATS);
+      if(typeof tcalRender==='function') tcalRender({ok:true,scale:TCAL.scale,offset:TCAL.offset}); }
   }catch(e){}
 }
 function setRoiMode(m){
@@ -1039,6 +1054,49 @@ document.getElementById('preSave').onclick=()=>{
   fetch('/prerecord',{method:'POST',body:fd}).then(r=>r.json()).then(preRender).catch(()=>{});
 };
 preLoad();
+
+/* ---- two-point thermal calibration ---- */
+let TCAL={scale:0.01, offset:0.0}, TCAL_POINTS=[];
+function tcalRender(j){
+  if(!j || !j.ok) return;
+  TCAL={scale:+j.scale, offset:+j.offset};
+  const now=document.getElementById('tcalNow');
+  if(now) now.textContent='scale '+TCAL.scale+' \u00b0C/raw \u00b7 offset '+TCAL.offset+' \u00b0C';
+  const sel=document.getElementById('tcalRegion');
+  if(sel){
+    const cur=sel.value;
+    sel.innerHTML=(ROI||[]).map(r=>'<option value="'+r.id+'">'+(r.name||r.id)+'</option>').join('');
+    if(cur && (ROI||[]).some(r=>r.id===cur)) sel.value=cur;
+  }
+  const box=document.getElementById('tcalPoints');
+  if(box) box.innerHTML=TCAL_POINTS.map((p,i)=>'<div class="roirow"><span class="roiname">'+
+    (p.label||('P'+(i+1)))+'</span><span class="roival">'+p.true.toFixed(1)+' \u00b0C \u2192 raw '+p.raw.toFixed(0)+'</span></div>').join('');
+}
+function tcalLoad(){ fetch('/tcal',{cache:'no-store'}).then(r=>r.json()).then(tcalRender).catch(()=>{}); }
+document.getElementById('tcalAdd').onclick=()=>{
+  const sel=document.getElementById('tcalRegion');
+  const t=parseFloat(document.getElementById('tcalTrue').value);
+  if(!sel || !sel.value || isNaN(t)) return;
+  const st=(ROI_STATS||[]).find(x=>x.id===sel.value);
+  if(!st || st.avg_c==null){ toast(t('measure.hint')); return; }
+  const raw=(st.avg_c - TCAL.offset) / TCAL.scale;
+  TCAL_POINTS.push({raw:raw, true:t,
+                    label:(sel.options[sel.selectedIndex]||{}).textContent || sel.value});
+  document.getElementById('tcalTrue').value='';
+  tcalRender({ok:true, scale:TCAL.scale, offset:TCAL.offset});
+};
+document.getElementById('tcalApply').onclick=()=>{
+  if(TCAL_POINTS.length!==2){ toast('need two points'); return; }
+  fetch('/tcal',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({points:TCAL_POINTS.map(p=>[p.raw,p.true])})})
+    .then(r=>r.json()).then(j=>{ if(j.ok) TCAL_POINTS=[]; tcalRender(j); }).catch(()=>{});
+};
+document.getElementById('tcalReset').onclick=()=>{
+  fetch('/tcal',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({reset:true})})
+    .then(r=>r.json()).then(j=>{ TCAL_POINTS=[]; tcalRender(j); }).catch(()=>{});
+};
+tcalLoad();
 
 const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElementById('clipHi'),
                spanLo:document.getElementById('spanLo'), spanHi:document.getElementById('spanHi')};

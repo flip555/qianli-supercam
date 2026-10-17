@@ -44,6 +44,46 @@ _palette = {"name": PALETTE}          # live palette - the GUI can change it
 TRANGE_PATH = os.path.join(os.path.dirname(CAL_PATH), "trange.json")
 AUTH = Auth(os.environ.get("SUPERCAM_AUTH_PATH")
             or os.path.join(os.path.dirname(CAL_PATH), "auth.json"))
+TCAL_PATH = os.path.join(os.path.dirname(CAL_PATH), "thermal_cal.json")
+_tcal = {"scale": SCALE, "offset": OFFSET}      # factory values unless calibrated
+
+
+def _load_tcal():
+    global _tcal
+    try:
+        with open(TCAL_PATH) as f:
+            d = json.load(f)
+        sc, off = float(d["scale"]), float(d["offset"])
+        if 0.0001 <= abs(sc) <= 1.0 and -200 <= off <= 200:
+            _tcal = {"scale": sc, "offset": off}
+            print("thermal calibration: scale %g offset %g" % (sc, off), flush=True)
+    except Exception:
+        pass
+
+
+def _save_tcal():
+    try:
+        with open(TCAL_PATH, "w") as f:
+            json.dump(_tcal, f)
+    except Exception:
+        pass
+
+
+def _fit_tcal(points):
+    """Two (raw, true) pairs -> scale and offset, with sanity limits."""
+    (r1, t1), (r2, t2) = points[0], points[1]
+    r1, t1, r2, t2 = float(r1), float(t1), float(r2), float(t2)
+    if abs(r2 - r1) < 50:
+        raise ValueError("the two points are too close together (need a real span)")
+    scale = (t2 - t1) / (r2 - r1)
+    offset = t1 - scale * r1
+    if not (0.0001 <= abs(scale) <= 1.0) or not (-200 <= offset <= 200):
+        raise ValueError("that would give an implausible calibration")
+    return scale, offset
+
+
+_load_tcal()
+
 _hist = collections.deque(maxlen=3600)   # (ts, min, max, mean) at ~1 Hz, shared by viewers
 _hist_last = 0.0
 
@@ -542,7 +582,7 @@ def _thermal_worker(client, sock, data):
     if not frames:
         return
     try:
-        img, stats = TH.decode(frames[-1], _palette["name"], SCALE, OFFSET,
+        img, stats = TH.decode(frames[-1], _palette["name"], _tcal["scale"], _tcal["offset"],
                                _trange["clip_lo"], _trange["clip_hi"],
                                _trange["span_lo"], _trange["span_hi"],
                                _trange["iso"])
@@ -555,7 +595,7 @@ def _thermal_worker(client, sock, data):
         if _regions or _alarms:
             ref_id = next((r["id"] for r in _regions if r.get("ref")), None)
             res = REG.stats_for(TH.values(frames[-1]), TH.W, TH.H, _regions,
-                                SCALE, OFFSET, ref_id) if _regions else []
+                                _tcal["scale"], _tcal["offset"], ref_id) if _regions else []
             with _lock:
                 _state["regions"] = res
             _maybe_csv(res)
@@ -941,7 +981,7 @@ class H(http.server.BaseHTTPRequestHandler):
     API_PATHS = ("/health", "/version", "/thermal.json", "/history.json", "/camera",
                  "/reboot", "/update", "/calibration", "/palette", "/trange", "/isotherm",
                  "/whoami", "/regions", "/regions.csv", "/alarms", "/notify",
-                 "/captures", "/captures.zip", "/prerecord")
+                 "/captures", "/captures.zip", "/prerecord", "/tcal")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
@@ -1201,6 +1241,32 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Content-Length", str(len(j)))
                 self.end_headers(); self.wfile.write(j)
+        elif p == "/tcal":
+            if self.command == "POST":
+                try:
+                    body = json.loads(self._body() or "{}")
+                except Exception:
+                    body = {}
+                if body.get("reset"):
+                    _tcal["scale"], _tcal["offset"] = SCALE, OFFSET
+                    _save_tcal()
+                    self._json_out(200, {"ok": True, "scale": _tcal["scale"],
+                                         "offset": _tcal["offset"], "reset": True})
+                    return
+                try:
+                    pts = body.get("points") or []
+                    if len(pts) != 2:
+                        raise ValueError("two points are required")
+                    sc, off = _fit_tcal(pts)
+                except Exception as exc:
+                    self._json_out(400, {"ok": False, "error": str(exc)})
+                    return
+                _tcal["scale"], _tcal["offset"] = sc, off
+                _save_tcal()
+                print("thermal calibration -> scale %g offset %g" % (sc, off), flush=True)
+            self._json_out(200, {"ok": True, "scale": _tcal["scale"],
+                                 "offset": _tcal["offset"],
+                                 "factory": {"scale": SCALE, "offset": OFFSET}})
         elif p == "/captures":
             self._json_out(200, {"ok": True, "clips": PREREC.list()})
         elif p == "/captures.zip":

@@ -87,9 +87,20 @@ with its own name, which is how the relay identifies it.
 | **Thermal** | Thermal full-frame, with temperature labels |
 | **Video** | Visible feed only |
 
-Under the view: palette, PiP size, the wipe position, and the calibration sliders
-(`Video scale`, `X`, `Y`, plus `Centre`). Calibration is stored server-side and
-shared with every viewer. The header shows the running version — and turns into an
+Under the view: palette, **temperature band**, PiP size, the wipe position, and the
+calibration sliders (`Video scale`, `X`, `Y`).
+
+**Temperature band** — with no band set the colours span each frame's own min..max,
+so they slide around as the scene changes. Set a minimum and maximum (in °C, `Band °C`
+in the toolbar) and the palette is pinned to that range instead, with everything
+outside it drawn **white** — which is how you pick one component's heat out of a
+board without the rest blowing the scale. `Auto` returns to the automatic span. The
+relay remembers the band across restarts.
+
+**Calibration** is stored server-side and shared with every viewer. `Reset to saved`
+returns the sliders to that stored alignment; `Centre` is the hard 1×/0/0 reset. A
+hidden or throttled browser tab can leave an MJPEG stream showing a stale frame, so
+the streams are prodded back to life whenever the tab becomes visible again. The header shows the running version — and turns into an
 update link when a newer release is available — followed by a badge saying whether
 this browser is decoding the feed itself (`codec`) or the relay is transcoding it
 (`mjpeg`).

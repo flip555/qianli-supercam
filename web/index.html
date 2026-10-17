@@ -510,7 +510,7 @@ function watch(img,src){
 const vcanvas=document.getElementById('vidcanvas');
 const vctx=vcanvas.getContext('2d');
 let vcOn=false, vcDecoder=null, vcWatchdog=null, vcFallback=false, vcLastFrame=0;
-let vcReader=null, vcStart=0, vcRetries=0, vcAuto=0;
+let vcReader=null, vcStart=0, vcRetries=0, vcAuto=0, vcBackoff=1;
 let vcFed=0, vcAUs=0, vcLastAU=0, vcErrs=0;
 function mjpegFallback(reason){
   if(vcFallback) return;
@@ -549,7 +549,7 @@ function startVisibleCodec(){
       try{
         vcDecoder=new VideoDecoder({
           output:(f)=>{
-            vcLastFrame=Date.now();
+            vcLastFrame=Date.now(); vcBackoff=1;
             if(!gotFrame){ gotFrame=true; clearTimeout(vcWatchdog);
               const fm=document.getElementById('feedmode');
               if(fm){ fm.textContent=t('feed.codec'); fm.title=t('feed.codec.title'); }
@@ -640,13 +640,17 @@ setInterval(()=>{
    sitting on MJPEG until something else nudges us. Bounded, so a genuinely broken
    stream cannot loop forever. */
 function scheduleRetry(){
-  if(vcAuto++ >= 5) return;
+  /* Back off instead of giving up: a relay restart (or a tunnel 502) can outlast five
+     quick retries, and the tab then sat on MJPEG until it was reloaded. The delay
+     doubles to 30 s and resets as soon as frames flow again. */
+  const wait=Math.min(30, vcBackoff);
+  vcBackoff=Math.min(30, vcBackoff*2);
+  console.info('visible feed: retrying the codec path in '+wait+'s');
   setTimeout(()=>{
-    if(!vcFallback) return;
+    if(!vcFallback || document.hidden) return;   /* a hidden tab waits until it is seen */
     vcFallback=false; vcLastFrame=0; vcStart=0;
-    console.info('visible feed: retrying the codec path after a disconnect');
     startVisibleCodec();
-  }, 2500);
+  }, wait*1000);
 }
 
 /* Coming back to the tab: if we had been pushed onto the MJPEG fallback, try the
@@ -654,7 +658,6 @@ function scheduleRetry(){
 function retryCodec(){
   if(!vcFallback) return;
   if(!('VideoDecoder' in window) || /[?&]mjpeg=1/.test(location.search)) return;
-  if(vcRetries++ >= 4) return;
   vcFallback=false; vcLastFrame=0; vcStart=0; vcAuto=0;
   console.info('visible feed: retrying the codec path');
   startVisibleCodec();

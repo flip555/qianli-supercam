@@ -624,11 +624,11 @@ def _stall_watchdog() -> None:
             _vproc = None
             _vrestarts += 1
             _start_video_ffmpeg()
-            print("video stalled %.0fs with data flowing - encoder restarted (stalls=%d)"
-                  % (age, _vstalls), flush=True)
+            print("%s video stalled %.0fs with data flowing - encoder restarted (stalls=%d)"
+                  % (time.strftime("%H:%M:%S"), age, _vstalls), flush=True)
         else:
-            print("camera silent %.0fs - dropping the session so it rebuilds (stalls=%d)"
-                  % (age, _vstalls), flush=True)
+            print("%s camera silent %.0fs - dropping the session so it rebuilds (stalls=%d)"
+                  % (time.strftime("%H:%M:%S"), age, _vstalls), flush=True)
             if _client is not None:
                 for sock in list(_client.socks.values()):
                     try:
@@ -637,8 +637,9 @@ def _stall_watchdog() -> None:
                         pass
         if actions >= 3 and _camera_reachable():
             if actions >= 6:
-                print("pipeline stuck for %.0fs with the camera up after %d attempts "
-                      "- exiting so the supervisor starts it clean" % (age, actions), flush=True)
+                print("%s pipeline stuck for %.0fs with the camera up after %d attempts "
+                      "- exiting so the supervisor starts it clean"
+                      % (time.strftime("%H:%M:%S"), age, actions), flush=True)
                 try:
                     sys.stdout.flush()
                 except Exception:
@@ -647,8 +648,8 @@ def _stall_watchdog() -> None:
             # First try the cheaper remedy: drop the camera session so the stream is
             # rebuilt. Exiting the process after three encoder restarts used to happen
             # constantly, and every exit signed every viewer out.
-            print("pipeline stuck for %.0fs with the camera up - reconnecting the session"
-                  % age, flush=True)
+            print("%s pipeline stuck for %.0fs with the camera up - reconnecting the session"
+                  % (time.strftime("%H:%M:%S"), age), flush=True)
             if _client is not None:
                 for sock in list(_client.socks.values()):
                     try:

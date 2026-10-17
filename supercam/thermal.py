@@ -107,20 +107,28 @@ def decode(frame: bytes, palette: str = "rainbow",
     """
     vals = struct.unpack_from("<%dH" % N, frame, PAYLOAD_OFFSET)
     lo, hi = min(vals), max(vals)
+    band_lo = band_hi = None
     if tmin is None or tmax is None or tmax <= tmin:
         clo, chi = lo, hi          # automatic
     else:
-        clo, chi = int((tmin - offset) / scale), int((tmax - offset) / scale)
+        band_lo, band_hi = int((tmin - offset) / scale), int((tmax - offset) / scale)
+        # The band is a window, not the ramp: the palette still spreads across the
+        # temperatures actually inside it, so a wide band does not collapse the
+        # whole scene into one colour, and outside it is drawn white.
+        inside = [v for v in vals if band_lo <= v <= band_hi]
+        clo, chi = (min(inside), max(inside)) if inside else (band_lo, band_hi)
+        if chi <= clo:
+            clo, chi = band_lo, band_hi
     span = (chi - clo) or 1
     lut = LUTS.get(palette, LUTS["rainbow"])
     rgb = bytearray(N * 3)
     for i, v in enumerate(vals):
-        if v < clo or v > chi:
+        if band_lo is not None and (v < band_lo or v > band_hi):
             rgb[i * 3:i * 3 + 3] = b"\xff\xff\xff"
         else:
             b = (v - clo) * 255 // span
-            rgb[i * 3:i * 3 + 3] = lut[(0 if b < 0 else 255 if b > 255 else b) * 3:
-                                       (0 if b < 0 else 255 if b > 255 else b) * 3 + 3]
+            b = 0 if b < 0 else 255 if b > 255 else b
+            rgb[i * 3:i * 3 + 3] = lut[b * 3:b * 3 + 3]
     img = Image.frombytes("RGB", (W, H), bytes(rgb))
     hot = max(range(N), key=lambda i: vals[i])
     cold = min(range(N), key=lambda i: vals[i])

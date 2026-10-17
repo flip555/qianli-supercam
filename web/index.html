@@ -923,9 +923,10 @@ function alarmCollect(){
              enabled: row.querySelector('.aen input').checked };
   });
 }
-function alarmPush(){
+function alarmPush(rules){
+  const body = Array.isArray(rules) ? rules : alarmCollect();
   fetch('/alarms',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(alarmCollect())}).then(r=>r.json()).then(alarmRender).catch(()=>{});
+    body:JSON.stringify(body)}).then(r=>r.json()).then(alarmRender).catch(()=>{});
 }
 function alarmEvents(events){
   const last=(events||[])[events.length-1];
@@ -941,15 +942,18 @@ function alarmRender(j){
     box.querySelectorAll('.alarmrow .ascope').forEach(el=>{
       el.onchange=()=>{ el.parentElement.querySelector('.aregion').style.display = el.value==='region'?'':'none'; alarmPush(); };
     });
-    box.querySelectorAll('.alarmrow .adel').forEach((b,i)=>{ b.onclick=()=>{ ALARMS.splice(i,1); alarmPush(); }; });
+    box.querySelectorAll('.alarmrow .adel').forEach((b,i)=>{
+      b.onclick=()=>{ const rules=alarmCollect(); rules.splice(i,1); alarmPush(rules); };
+    });
   }
   alarmEvents(j.events);
 }
 function alarmLoad(){ fetch('/alarms',{cache:'no-store'}).then(r=>r.json()).then(alarmRender).catch(()=>{}); }
 document.getElementById('alarmAdd').onclick=()=>{
-  ALARMS.push({id:'a'+Math.random().toString(36).slice(2,6),name:'',scope:'frame',region_id:'',
-    metric:'max',above:true,threshold:45,dwell_ms:5000,enabled:true});
-  alarmPush();
+  const rules = alarmCollect();
+  rules.push({id:'a'+Math.random().toString(36).slice(2,6), name:'', scope:'frame', region_id:'',
+              metric:'max', above:true, threshold:45, dwell_ms:5000, enabled:true});
+  alarmPush(rules);
 };
 function notifyRender(j){
   const box=document.getElementById('notifyList'); if(!box) return;

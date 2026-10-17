@@ -23,7 +23,7 @@ const mkEl = (id) => new Proxy({}, {
       case 'classList': return { add() {}, remove() {}, toggle() {}, contains() { return false; } };
       case 'dataset': return t.dataset || (t.dataset = {});
       case 'getBoundingClientRect': return () => ({ width: 800, height: 450, left: 0, top: 0 });
-      case 'getContext': return () => mkEl(id + ':ctx');
+      case 'getContext': return () => new Proxy({}, { get: () => () => {} });
       case 'addEventListener': return () => {};
       case 'removeEventListener': return () => {};
       case 'setAttribute': case 'removeAttribute': case 'click': case 'focus':

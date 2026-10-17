@@ -74,6 +74,9 @@
   .sec>summary::before{content:"\25be  ";color:#5c6673}
   .sec[open]>summary::before{content:"\25b4  "}
   .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+  #chart{width:100%;height:110px;display:block;background:#0d1117;border-radius:8px;margin-top:10px}
+  .chartlegend{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;font:12px ui-monospace,Menlo,monospace}
+  .chartlegend b{font-weight:600}
   .lbl{color:#8b949e;font-size:12px;min-width:58px}
   #bandwrap{margin-top:10px}
   .bandrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
@@ -201,6 +204,11 @@
             <input type="number" id="spanHi" step="0.5" placeholder="auto">
             <button id="spanauto" data-i18n="btn.auto">Auto</button></div>
         </div>
+      </details>
+      <details class="sec" open>
+        <summary data-i18n="panel.chart">Chart</summary>
+        <canvas id="chart"></canvas>
+        <div class="chartlegend" id="chartlegend"></div>
       </details>
       <details class="sec">
         <summary data-i18n="panel.align">Align</summary>
@@ -688,6 +696,46 @@ function applyCal(){
 function saveCal(){ fetch('/calibration',{method:'POST',headers:{'Content-Type':'application/json'},
   body:JSON.stringify(CAL)}).catch(()=>{}); }
 let lastStats=null;
+/* temperature history for the chart: one sample a second, ten minutes */
+const HIST=[], HIST_MAX=600;
+const chartEl=document.getElementById('chart'), chartCtx=chartEl.getContext('2d');
+const chartLegend=document.getElementById('chartlegend');
+function drawChart(){
+  const w=chartEl.clientWidth||300, h=chartEl.clientHeight||110;
+  if(chartEl.width!==w) chartEl.width=w;
+  if(chartEl.height!==h) chartEl.height=h;
+  const g=chartCtx;
+  try{ g.clearRect(0,0,w,h); }catch(e){ return; }
+  if(HIST.length<2) return;
+  let lo=Infinity, hi=-Infinity;
+  for(const p of HIST){ if(p.min<lo) lo=p.min; if(p.max>hi) hi=p.max; }
+  if(hi-lo<1){ const m=(hi+lo)/2; lo=m-0.5; hi=m+0.5; }
+  const pad=(hi-lo)*0.12; lo-=pad; hi+=pad;
+  const X=(i)=>i/Math.max(1,HIST.length-1)*w;
+  const Y=(v)=>h-(v-lo)/(hi-lo)*h;
+  const line=(key,col,width)=>{
+    g.beginPath();
+    HIST.forEach((p,i)=>{ const x=X(i), y=Y(p[key]); i?g.lineTo(x,y):g.moveTo(x,y); });
+    g.strokeStyle=col; g.lineWidth=width; g.stroke();
+  };
+  line('min','#4aa3ff',1.3);
+  line('avg','#8b949e',1);
+  line('max','#ffb84d',1.6);
+  /* a couple of gridlines with their values, so the scale is readable */
+  g.strokeStyle='#1e242c'; g.lineWidth=1; g.font='10px ui-monospace,Menlo,monospace';
+  g.fillStyle='#5c6673';
+  for(const v of [lo+pad, (lo+hi)/2, hi-pad]){
+    const y=Math.round(Y(v))+0.5;
+    g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke();
+    g.fillText(v.toFixed(1)+'°C', 4, Math.max(10, y-2));
+  }
+  const last=HIST[HIST.length-1];
+  if(chartLegend) chartLegend.innerHTML =
+    '<span style="color:#ffb84d">'+t('chart.max')+' <b>'+last.max.toFixed(1)+'</b></span>'+
+    '<span style="color:#8b949e">'+t('chart.avg')+' <b>'+last.avg.toFixed(1)+'</b></span>'+
+    '<span style="color:#4aa3ff">'+t('chart.min')+' <b>'+last.min.toFixed(1)+'</b></span>';
+}
+addEventListener('resize',()=>{ drawChart(); });
 let saveTimer=null;
 const saveSoon=()=>{ clearTimeout(saveTimer); saveTimer=setTimeout(saveCal,700); };
 ts.oninput=e=>{CAL.ts=+e.target.value; applyCal(); saveSoon();};
@@ -747,6 +795,9 @@ function tick(){
       document.getElementById('readout').innerHTML=t('readout.line',
         {max:s.max_c.toFixed(1),avg:s.mean_c.toFixed(1),min:s.min_c.toFixed(1)});
       lastStats=s; renderMarks(s);
+      HIST.push({max:s.max_c, avg:s.mean_c, min:s.min_c});
+      if(HIST.length>HIST_MAX) HIST.shift();
+      drawChart();
     }
   }).catch(()=>{ meta.textContent=t('status.noStatus'); });
 }

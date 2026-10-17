@@ -877,19 +877,22 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == "/trange":
             import json, urllib.parse
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            bounds = {"clip_lo": q.get("clip_lo", q.get("min")) or [None],
-                      "clip_hi": q.get("clip_hi", q.get("max")) or [None],
-                      "span_lo": q.get("span_lo") or [None],
-                      "span_hi": q.get("span_hi") or [None]}
             if "auto" in q:
                 for k in _trange:
                     _trange[k] = None
                 changed = True
             else:
-                changed = any(c[0] is not None for c in bounds.values())
+                # Only the bounds actually supplied are touched: sending one must
+                # not silently clear the others (that made a half-filled pair look
+                # like it kept resetting itself to automatic).
+                supplied = {k: q[k][0] for k in ("clip_lo", "clip_hi", "span_lo", "span_hi") if k in q}
+                for alias, key in (("min", "span_lo"), ("max", "span_hi")):
+                    if alias in q and key not in supplied:
+                        supplied[key] = q[alias][0]
+                changed = bool(supplied)
                 try:
-                    for k, (v,) in bounds.items():
-                        _trange[k] = None if v in (None, "", "auto") else float(v)
+                    for k, v in supplied.items():
+                        _trange[k] = None if v in ("", "auto") else float(v)
                 except Exception as e:
                     out = json.dumps({"ok": False, "error": str(e)}).encode()
                     self.send_response(400)

@@ -49,6 +49,7 @@ REFERENCE_RAW = os.path.join(os.path.dirname(CAL_PATH), "reference.raw")
 REFERENCE_JSON = os.path.join(os.path.dirname(CAL_PATH), "reference.json")
 REFERENCES_DIR = os.path.join(os.path.dirname(CAL_PATH), "references")
 _ref = None          # {"raw", "vals", "at", "stats", "scale", "offset"}
+_dt_span = 5.0       # degrees either side of zero, for the delta palette
 _tcal = {"scale": SCALE, "offset": OFFSET}      # factory values unless calibrated
 
 
@@ -90,13 +91,14 @@ _load_tcal()
 
 
 def _load_reference():
-    global _ref
+    global _ref, _dt_span
     try:
         with open(REFERENCE_RAW, "rb") as f:
             raw = f.read()
         with open(REFERENCE_JSON) as f:
             meta = json.load(f)
         _ref = {"raw": raw, "vals": TH.values(raw), **meta}
+        _dt_span = float(meta.get("span") or 5.0)
         print("reference frame restored (%.0f)" % (_ref.get("at") or 0), flush=True)
     except Exception:
         _ref = None
@@ -684,7 +686,7 @@ def _thermal_worker(client, sock, data):
                 if fired:
                     _on_alarms(fired)
             if ref_vals:
-                dtimg, dtstats = TH.render_dt(vals, ref_vals, _tcal["scale"])
+                dtimg, dtstats = TH.render_dt(vals, ref_vals, _tcal["scale"], _dt_span)
                 out2 = io.BytesIO()
                 dtimg.save(out2, format="JPEG", quality=80)
                 with _lock:
@@ -1265,7 +1267,7 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path.split("?")[0]
-        global _regions, _ref
+        global _regions, _ref, _dt_span
         self.role = "admin"
         try:
             if self._route_public(p):
@@ -1464,7 +1466,23 @@ class H(http.server.BaseHTTPRequestHandler):
             self.wfile.write(data)
         elif p == "/reference":
             if self.command == "POST":
-                if self._form().get("clear"):
+                form = self._form()
+                if form.get("span") is not None:
+                    try:
+                        _dt_span = max(0.5, min(float(form.get("span")), 50.0))
+                    except Exception:
+                        self._json_out(400, {"ok": False, "error": "span must be a number"})
+                        return
+                    if _ref:
+                        meta = dict(_ref)
+                        meta["span"] = _dt_span
+                        with open(REFERENCE_JSON, "w") as fh:
+                            json.dump({k: meta.get(k) for k in
+                                       ("name", "at", "stats", "scale", "offset", "span")},
+                                      fh, indent=2, default=str)
+                    self._json_out(200, {"ok": True, "span": _dt_span})
+                    return
+                if form.get("clear"):
                     _ref = None
                     for path in (REFERENCE_RAW, REFERENCE_JSON):
                         try:
@@ -1497,7 +1515,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 return
             meta = _ref or {}
             self._json_out(200, {"ok": True, "present": bool(_ref),
-                                 "at": meta.get("at"), "stats": meta.get("stats")})
+                                 "at": meta.get("at"), "stats": meta.get("stats"),
+                                 "span": _dt_span})
         elif p == "/dt.json":
             with _lock:
                 dts = _state.get("dtstats")

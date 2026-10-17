@@ -80,6 +80,11 @@
   #toast{position:fixed;right:18px;bottom:18px;max-width:380px;background:#3a1d1d;border:1px solid #7a2c2c;
     color:#ffd7d7;padding:10px 13px;border-radius:9px;font-size:13px;display:none;z-index:60;line-height:1.4}
   .stage:fullscreen{background:#000}
+  #dtLegend{position:absolute;right:12px;bottom:12px;display:none;align-items:center;gap:6px;
+    background:rgba(8,10,13,.72);padding:4px 8px;border-radius:6px;
+    font:11px ui-monospace,Menlo,monospace;color:#c8d1dc;z-index:8;pointer-events:none}
+  #dtLegend .ramp{width:110px;height:8px;border-radius:4px;
+    background:linear-gradient(90deg,#285aff 0%,#9fb4ff 35%,#fff 50%,#ffb0b0 65%,#ff2828 100%)}
   #reanaBadge{position:absolute;top:10px;left:112px;background:rgba(126,226,168,.92);color:#10221a;
     font:600 11px system-ui,sans-serif;padding:3px 8px;border-radius:6px;display:none;z-index:8;
     letter-spacing:.06em;pointer-events:none}
@@ -209,6 +214,7 @@
         <div id="frozenBadge" data-i18n="label.frozen">FROZEN</div>
         <div id="dtBadge" data-i18n="label.dt">&#916;T</div>
         <div id="reanaBadge" data-i18n="label.reana">RE-ANALYSIS</div>
+        <div id="dtLegend"><span id="dtLo">&#8722;5</span><div class="ramp"></div><span id="dtHi">+5</span></div>
         <div class="readout" id="readout">&mdash;</div>
       </div>
   <p class="note" data-i18n="note.text">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
@@ -273,6 +279,16 @@
             <button id="refSet" data-i18n="btn.setRef">Set reference</button>
             <button id="refClear" class="ghost" data-i18n="btn.clearRef">Clear</button>
             <button id="dtView" class="ghost" data-i18n="btn.dtView">&#916;T view</button>
+          </div>
+          <div class="ctl">
+            <span class="lbl" data-i18n="label.span">span</span>
+            <select id="dtSpan">
+              <option value="1">&#177;1 &#176;C</option>
+              <option value="2">&#177;2 &#176;C</option>
+              <option value="5" selected>&#177;5 &#176;C</option>
+              <option value="10">&#177;10 &#176;C</option>
+              <option value="20">&#177;20 &#176;C</option>
+            </select>
           </div>
           <div class="ctl">
             <input type="text" id="refName" placeholder="name" style="width:96px">
@@ -1214,7 +1230,8 @@ addEventListener('keydown',ev=>{
 let REANA=null;
 function reanaImage(){
   if(!REANA) return;
-  thimg.src='/reanalyze.jpg?name='+encodeURIComponent(REANA)+'&t='+Date.now();
+  thimg.src='/reanalyze.jpg?name='+encodeURIComponent(REANA)+'&palette='+
+    encodeURIComponent(palsel.value)+'&t='+Date.now();
 }
 function reanaStats(){
   if(!REANA) return;
@@ -1270,11 +1287,15 @@ function snapsLoad(){ fetch('/snapshots',{cache:'no-store'}).then(r=>r.json()).t
 snapsLoad();
 
 /* ---- reference frame and delta-T view ---- */
-let DT_ON=false, REF={present:false, at:null};
+let DT_ON=false, REF={present:false, at:null}, DT_SPAN=5;
 function thermalSrc(){ return DT_ON ? '/dt.mjpg' : '/stream.mjpg'; }
 function dtPaint(){
   const b=document.getElementById('dtView'); if(b) b.style.background = DT_ON ? '#1f6feb' : '';
   const badge=document.getElementById('dtBadge'); if(badge) badge.style.display = DT_ON ? 'block' : 'none';
+  const legend=document.getElementById('dtLegend'); if(legend) legend.style.display = DT_ON ? 'flex' : 'none';
+  const lo=document.getElementById('dtLo'), hi=document.getElementById('dtHi');
+  if(lo) lo.textContent='\u2212'+DT_SPAN;
+  if(hi) hi.textContent='+'+DT_SPAN;
 }
 function setDt(on){
   DT_ON=!!on;
@@ -1285,6 +1306,7 @@ function setDt(on){
 function refRender(j){
   if(!j || !j.ok) return;
   REF=j;
+  if(j.span) { DT_SPAN=+j.span; const sel=document.getElementById('dtSpan'); if(sel) sel.value=String(DT_SPAN); }
   const el=document.getElementById('refNow');
   if(el) el.textContent = j.present
     ? (t('ref.taken')+' '+new Date((j.at||0)*1000).toLocaleTimeString())
@@ -1311,6 +1333,13 @@ document.getElementById('refSet').onclick=()=>{
 document.getElementById('refClear').onclick=()=>{
   fetch('/reference',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
     body:'clear=1'}).then(r=>r.json()).then(()=>{ refLoad(); }).catch(()=>{});
+};
+document.getElementById('dtSpan').onchange=()=>{
+  const v=document.getElementById('dtSpan').value;
+  const fd=new FormData(); fd.append('span',v);
+  fetch('/reference',{method:'POST',body:fd}).then(r=>r.json()).then(j=>{
+    if(j.ok){ DT_SPAN=+j.span; dtPaint(); if(DT_ON) thimg.src='/dt.mjpg?t='+Date.now(); }
+  }).catch(()=>{});
 };
 document.getElementById('dtView').onclick=()=>{
   if(!REF.present){ toast(t('ref.none')); return; }

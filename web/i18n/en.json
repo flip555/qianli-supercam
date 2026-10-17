@@ -101,6 +101,7 @@
   "label.ref": "reference (delta uses this)",
   "label.region": "region",
   "label.show": "Show",
+  "label.span": "span",
   "label.split": "Split",
   "label.step": "Step",
   "label.steps": "Steps",

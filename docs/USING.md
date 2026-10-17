@@ -95,8 +95,14 @@ Choose **isotherm** in the Palette list to paint a colour per temperature band.
 * Each measured region shows a ΔT figure beside its absolute values
 
 The reference (`reference.raw` / `reference.json`) survives restarts; **Clear** removes
-it, and snapshots record which reference was in use. The reference is a single frame and
-the span is fixed at ±10 °C.
+it, and snapshots record which reference was in use. The reference is a single frame.
+
+Set the **span** to suit the question: **±1 °C** shows the first degree of heating, **±5 °C**
+is a good default for a board, **±20 °C** for something violent. The colour bar in the
+corner says what the colours mean, **white at zero** — an all-white image means nothing
+has changed since the reference, not that the view is broken. The ΔT palette is its own,
+because palettes and isotherm rows describe absolute temperatures while a difference
+needs a signed scale.
 
 **Save as…** keeps the current frame under a name, and as many as you like. Pick two in
 the compare row and press **Compare** to see ΔT between them (min / average / max) with

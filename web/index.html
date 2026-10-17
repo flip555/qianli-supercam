@@ -62,6 +62,8 @@
   .mark b{position:absolute;left:15px;top:-5px;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
     color:#fff;background:rgba(8,10,13,.82);border:1px solid #4a5768;border-radius:5px;
     padding:1px 5px;white-space:nowrap}
+  .mark b{background:none!important;border:0!important;padding:0!important;color:#fff!important;
+    text-shadow:0 0 2px #000,0 0 4px #000,0 0 7px #000;font-size:12px}
   .mark.cold i{border-color:#7fd1ff}
   .mark.cold b{border-color:#2b5a75}
   .mark.peak i{width:9px;height:9px;border-color:#ffd166}
@@ -435,6 +437,7 @@
     <a href="https://github.com/flip555/qianli-supercam/releases" target="_blank" rel="noopener" data-i18n="footer.releases">releases</a>
     <span class="grow"></span>
     <span id="who"></span>
+    <button id="tunit" class="ghost" title="units">&#176;C</button>
     <label for="lang" data-i18n="footer.language">Language</label>
     <select id="lang"></select>
     <span id="footver"></span>
@@ -468,6 +471,11 @@ const stage=document.getElementById('stage'), vid=document.getElementById('vid')
 
 /* ---- translations: one JSON file per language in web/i18n/ ---- */
 let I18N={}, LANG='en';
+let TUNIT='C';
+try{ if(localStorage.getItem('supercam.unit')==='F') TUNIT='F'; }catch(e){}
+const convT=(c)=>TUNIT==='F' ? c*9/5+32 : c;
+const fmtN=(c,d)=>convT(c).toFixed(d===undefined?1:d);
+const fmtT=(c,d)=>fmtN(c,d)+'\u00b0'+TUNIT;
 const LANGS=[['en','English'],['es','Espa\u00f1ol'],['fr','Fran\u00e7ais'],['de','Deutsch'],['pt','Portugu\u00eas'],['zh','\u7b80\u4f53\u4e2d\u6587'],['ja','\u65e5\u672c\u8a9e'],['ru','\u0420\u0443\u0441\u0441\u043a\u0438\u0439'],['ar','\u0627\u0644\u0639\u0631\u0628\u064a\u0629']];
 function t(key,vars){
   let s=(I18N[key]!=null)?I18N[key]:key;
@@ -916,6 +924,10 @@ function stageToThermal(ev){
   const x=Math.round(((ev.clientX-r.left)-ox)/sc), y=Math.round(((ev.clientY-r.top)-oy)/sc);
   return (x>=0&&x<160&&y>=0&&y<120)?[x,y]:null;
 }
+function labelSvg(x, y, txt, size){
+  return '<text x="'+x+'" y="'+y+'" font-size="'+(size||2.4)+'" fill="#fff" stroke="#000" '+
+         'stroke-width="0.3" paint-order="stroke" font-family="ui-monospace,Menlo,monospace">'+txt+'</text>';
+}
 function roiDraw(){
   if(!roiLayer) return;
   const parts=ROI.map(r=>{
@@ -942,8 +954,11 @@ function roiDraw(){
     const pts=r.pts||[]; if(!pts.length) return;
     const xs=pts.map(q=>q[0]), ys=pts.map(q=>q[1]);
     const x=Math.min.apply(null,xs), y=Math.max(4, Math.min.apply(null,ys)-1.4);
-    parts.push('<text x="'+x+'" y="'+y+'" font-size="2.6" fill="#fff" stroke="#000" stroke-width="0.3" paint-order="stroke">'+
-               st.max_c.toFixed(1)+'/'+st.min_c.toFixed(1)+'</text>');
+    parts.push(labelSvg(x, y, fmtN(st.max_c)+'/'+fmtN(st.min_c), 2.6));
+    if(r.kind==='point'){
+      const pt=r.pts[0];
+      parts.push(labelSvg(pt[0]+2.4, pt[1]-2.4, fmtT(st.avg_c), 2.3));
+    }
   });
   if(POLY.length){
     const pts=POLY.map(p=>p[0]+','+p[1]).join(' ');
@@ -965,7 +980,7 @@ function roiList(stats){
   if(!ROI.length){ box.innerHTML='<p class=hint>'+t('measure.hint')+'</p>'; return; }
   box.innerHTML=ROI.map(r=>{
     const s=(stats||[]).find(x=>x.id===r.id);
-    const val=(s && s.min_c!=null) ? (s.min_c.toFixed(1)+' / '+s.avg_c.toFixed(1)+' / '+s.max_c.toFixed(1)+' \u00b0C') : '\u2014';
+    const val=(s && s.min_c!=null) ? (fmtN(s.min_c)+' / '+fmtN(s.avg_c)+' / '+fmtN(s.max_c)+' \u00b0'+TUNIT) : '\u2014';
     const d=(s && s.delta_c!=null) ? ' <b>'+(s.delta_c>=0?'+':'')+s.delta_c.toFixed(1)+'</b>' : '';
     const dt=(s && s.dt_avg_c!=null) ? ' \u0394T '+(s.dt_avg_c>=0?'+':'')+s.dt_avg_c.toFixed(1) : '';
     return '<div class="roirow">'+
@@ -1617,7 +1632,7 @@ function drawChart(){
   for(const v of [lo+pad, (lo+hi)/2, hi-pad]){
     const y=Math.round(Y(v))+0.5;
     g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke();
-    g.fillText(v.toFixed(1)+'°C', 4, Math.max(10, y-2));
+    g.fillText(fmtN(v)+'°'+TUNIT, 4, Math.max(10, y-2));
   }
   const last=view[view.length-1];
   if(chartLegend) chartLegend.innerHTML =
@@ -1677,6 +1692,20 @@ document.getElementById('calsave').onclick=e=>{ saveCal();
 })();
 
 /* temperature marks on the thermal image (wipe / thermal views) */
+const tutBtn=document.getElementById('tunit');
+function paintUnit(){ if(tutBtn) tutBtn.textContent='\u00b0'+TUNIT; }
+if(tutBtn){
+  paintUnit();
+  tutBtn.onclick=()=>{
+    TUNIT=(TUNIT==='F')?'C':'F';
+    try{ localStorage.setItem('supercam.unit', TUNIT); }catch(e){}
+    paintUnit();
+    try{ drawChart(); }catch(e){}
+    if(typeof ROI_STATS!=='undefined') roiList(ROI_STATS);
+    if(lastStats) renderMarks(lastStats);
+    try{ tick(); }catch(e){}
+  };
+}
 function renderMarks(st){
   const box=document.getElementById('marks');
   if(!st){ box.innerHTML=''; return; }
@@ -1689,9 +1718,9 @@ function renderMarks(st){
     const l=(ox+(x+0.5)*sc)/sw*100, t=(oy+(y+0.5)*sc)/sh*100;
     html += '<div class="mark '+cls+'" style="left:'+l+'%;top:'+t+'%"><i></i><b>'+txt+'</b></div>';
   };
-  if(st.hot)  add(st.hot[0],  st.hot[1],  st.max_c.toFixed(1)+'\u00b0C', 'hot');
-  if(st.cold) add(st.cold[0], st.cold[1], st.min_c.toFixed(1)+'\u00b0C', 'cold');
-  (st.peaks||[]).forEach((pk,i)=>{ if(i>0) add(pk.x, pk.y, pk.c.toFixed(1)+'\u00b0C', 'peak'); });
+  if(st.hot)  add(st.hot[0],  st.hot[1],  fmtT(st.max_c), 'hot');
+  if(st.cold) add(st.cold[0], st.cold[1], fmtT(st.min_c), 'cold');
+  (st.peaks||[]).forEach((pk,i)=>{ if(i>0) add(pk.x, pk.y, fmtT(pk.c), 'peak'); });
   box.innerHTML=html;
 }
 
@@ -1702,7 +1731,7 @@ function tick(){
     const s=j.stats;
     if(s){
       document.getElementById('readout').innerHTML=t('readout.line',
-        {max:s.max_c.toFixed(1),avg:s.mean_c.toFixed(1),min:s.min_c.toFixed(1)});
+        {max:fmtN(s.max_c),avg:fmtN(s.mean_c),min:fmtN(s.min_c)}).replace(/\u00b0C/g,'\u00b0'+TUNIT);
       lastStats=s; renderMarks(s);
       HIST.push({max:s.max_c, avg:s.mean_c, min:s.min_c});
       if(HIST.length>HIST_MAX) HIST.shift();

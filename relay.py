@@ -1008,9 +1008,9 @@ class H(http.server.BaseHTTPRequestHandler):
                     .get("name") or [None])[0]
             if name is None:
                 out = json.dumps({"ok": True, "palette": _palette["name"],
-                                  "available": sorted(TH.LUTS)}).encode()
+                                  "available": sorted(list(TH.LUTS) + ["isotherm"])}).encode()
                 self.send_response(200)
-            elif name in TH.LUTS:
+            elif name in TH.LUTS or name == "isotherm":
                 _palette["name"] = name
                 try:
                     with open(PALETTE_PATH, "w") as fh:
@@ -1022,7 +1022,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_response(200)
             else:
                 out = json.dumps({"ok": False, "error": "unknown palette",
-                                  "available": sorted(TH.LUTS)}).encode()
+                                  "available": sorted(list(TH.LUTS) + ["isotherm"])}).encode()
                 self.send_response(400)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))

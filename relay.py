@@ -65,7 +65,6 @@ _iso = {"current": "pcba 8", "profiles": dict(ISO_BUILTIN)}
 
 
 def _load_iso():
-    import json
     try:
         with open(ISO_PATH) as f:
             t = json.load(f)
@@ -78,7 +77,6 @@ def _load_iso():
 
 
 def _save_iso():
-    import json
     try:
         with open(ISO_PATH, "w") as f:
             json.dump(_iso, f)
@@ -102,7 +100,6 @@ if _iso["profiles"].get(_iso["current"]):
 
 
 def _load_trange():
-    import json
     try:
         with open(TRANGE_PATH) as f:
             t = json.load(f)
@@ -135,7 +132,6 @@ _load_palette()
 
 
 def _load_cal():
-    import json
     try:
         with open(CAL_PATH) as f:
             c = json.load(f)
@@ -1016,7 +1012,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif p == "/reboot":
-            import json
             if self.command != "POST":
                 out = json.dumps({"ok": False, "error": "POST only"}).encode()
                 self.send_response(405)
@@ -1034,7 +1029,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(out)
         elif p == "/camera":
-            import json
             if self.command == "POST":
                 try:
                     n = int(self.headers.get("Content-Length", "0") or 0)
@@ -1072,7 +1066,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(out)
         elif p == "/calibration":
-            import json
             if self.command == "POST":
                 try:
                     n = int(self.headers.get("Content-Length", "0") or 0)
@@ -1115,7 +1108,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(out)
         elif p == "/version":
-            import json
             out = json.dumps({"ok": True, "version": VERSION, "repo": UPD.REPO}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -1123,7 +1115,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(out)
         elif p == "/update":
-            import json
             ok_flag = False
             if self.command == "POST":
                 try:
@@ -1162,7 +1153,6 @@ class H(http.server.BaseHTTPRequestHandler):
                 threading.Timer(1.5, lambda: os._exit(3)).start()
             return
         elif p == "/trange":
-            import json, urllib.parse
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             if "auto" in q:
                 for k in _trange:
@@ -1213,7 +1203,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(out)))
             self.end_headers(); self.wfile.write(out)
         elif p == "/isotherm":
-            import json, urllib.parse
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             ok = True
             if "apply" in q:
@@ -1244,7 +1233,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(out)))
             self.end_headers(); self.wfile.write(out)
         elif p == "/palette":
-            import json, urllib.parse
             name = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                     .get("name") or [None])[0]
             if name is None:

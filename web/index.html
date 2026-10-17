@@ -338,7 +338,7 @@ function watch(img,src){
 const vcanvas=document.getElementById('vidcanvas');
 const vctx=vcanvas.getContext('2d');
 let vcOn=false, vcDecoder=null, vcWatchdog=null, vcFallback=false, vcLastFrame=0;
-let vcReader=null, vcStart=0, vcRetries=0;
+let vcReader=null, vcStart=0, vcRetries=0, vcAuto=0;
 let vcFed=0, vcAUs=0, vcLastAU=0, vcErrs=0;
 function mjpegFallback(reason){
   if(vcFallback) return;
@@ -448,8 +448,8 @@ function startVisibleCodec(){
         if(value && value.length) feed(value);
         if(vcDecoder && vcDecoder.decodeQueueSize>24) await new Promise(r=>setTimeout(r,20));
       }
-      mjpegFallback();
-    }catch(e){ mjpegFallback(t('why.noRaw')); }
+      if(!vcFallback){ mjpegFallback(t('why.stalled')); scheduleRetry(); }
+    }catch(e){ mjpegFallback(t('why.noRaw')); scheduleRetry(); }
   })();
 }
 if(('VideoDecoder' in window) && !/[?&]mjpeg=1/.test(location.search)) startVisibleCodec();
@@ -459,9 +459,23 @@ else mjpegFallback();
 setInterval(()=>{
   if(!vcOn || vcFallback || document.hidden) return;
   const now=Date.now();
-  if(vcLastFrame && now-vcLastFrame>6000) mjpegFallback(t('why.stalled'));
+  if(vcLastFrame && now-vcLastFrame>6000){ mjpegFallback(t('why.stalled')); scheduleRetry(); }
   else if(!vcLastFrame && vcStart && now-vcStart>10000) mjpegFallback(t('why.noFrame'));
 }, 2000);
+
+/* If the codec path dies unexpectedly - most likely because the relay restarted,
+   which is what the in-GUI updater does by design - try again shortly instead of
+   sitting on MJPEG until something else nudges us. Bounded, so a genuinely broken
+   stream cannot loop forever. */
+function scheduleRetry(){
+  if(vcAuto++ >= 5) return;
+  setTimeout(()=>{
+    if(!vcFallback) return;
+    vcFallback=false; vcLastFrame=0; vcStart=0;
+    console.info('visible feed: retrying the codec path after a disconnect');
+    startVisibleCodec();
+  }, 2500);
+}
 
 /* Coming back to the tab: if we had been pushed onto the MJPEG fallback, try the
    codec path again rather than accepting the slower one for the rest of the visit. */
@@ -469,7 +483,7 @@ function retryCodec(){
   if(!vcFallback) return;
   if(!('VideoDecoder' in window) || /[?&]mjpeg=1/.test(location.search)) return;
   if(vcRetries++ >= 4) return;
-  vcFallback=false; vcLastFrame=0; vcStart=0;
+  vcFallback=false; vcLastFrame=0; vcStart=0; vcAuto=0;
   console.info('visible feed: retrying the codec path');
   startVisibleCodec();
 }

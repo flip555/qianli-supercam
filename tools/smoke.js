@@ -53,9 +53,13 @@ global.ResizeObserver = class { observe() {} };
 global.getComputedStyle = () => ({ getPropertyValue: () => '' });
 global.confirm = () => true; global.alert = () => {};
 global.URL = { createObjectURL: () => '' }; global.Image = class {};
+global.__applyBands = null;
 
 let failed = false;
-try { new Function(body)(); console.log('load: OK (script ran to completion)'); }
+let applyReply = () => {};
+try { const fn = new Function(body + '\n;global.__applyBands = applyBands;'); fn();
+      applyReply = (r) => global.__applyBands(r);
+      console.log('load: OK (script ran to completion)'); }
 catch (e) { console.log('load: THREW ' + e.constructor.name + ': ' + e.message); failed = true; }
 
 const wired = { fliph: 'onclick', flipv: 'onclick', rot90: 'onclick', nup: 'onclick', ndown: 'onclick',
@@ -89,5 +93,16 @@ process.exitCode = failed ? 1 : 0;
   try { slo.oninput(); } catch (e) { console.log('slider: span oninput threw ' + e.message); failed = true; }
   if (!sent || !/[?&]span_lo=20/.test(sent)) { console.log('slider: span request used the wrong parameter name: ' + sent); failed = true; }
   else console.log('slider: both bands send the names the relay accepts');
+
+  /* ...and the reply must survive being applied: feed back a realistic response
+     and check the boxes still hold their values (camelCase-vs-snake_case again). */
+  getEl('clipLo').value = '30'; getEl('clipHi').value = '150';
+  applyReply({ ok: true, clip_lo: 30, clip_hi: 150, span_lo: 20, span_hi: 22.5 });
+  const kept = ['clipLo', 'clipHi', 'spanLo', 'spanHi'].map((id) => getEl(id).value);
+  console.log('  boxes after a server reply: ' + JSON.stringify(kept));
+  if (kept[0] !== '30' || kept[1] !== '150' || kept[2] !== '20' || kept[3] !== '22.5') {
+    console.log('  the reply blanked the boxes (name mismatch on the way back)');
+    failed = true;
+  }
   process.exitCode = failed ? 1 : 0;
 })();

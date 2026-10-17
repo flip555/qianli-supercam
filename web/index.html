@@ -581,7 +581,9 @@ const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElem
 const BAND_API={clipLo:'clip_lo', clipHi:'clip_hi', spanLo:'span_lo', spanHi:'span_hi'};
 function applyBands(j){
   if(!j || !j.ok) return;
-  for(const k in bandEls) bandEls[k].value=(j[k]==null?'':j[k]);
+  /* read back with the API's names, not the element ids - mixing the two blanked
+     every box a moment after it was set */
+  for(const k in bandEls){ const v=j[BAND_API[k]]; bandEls[k].value=(v==null?'':v); }
   for(const k in bandEls) bandEls[k].classList.remove('bad');
 }
 function bandFill(loR,hiR,fillEl){

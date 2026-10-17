@@ -97,38 +97,43 @@ def _peaks(vals, n: int = 3, min_sep: int = 14, margin: int = 3):
 
 def decode(frame: bytes, palette: str = "rainbow",
            scale: float = 0.01, offset: float = 0.0,
-           tmin: float = None, tmax: float = None) -> tuple[Image.Image, dict]:
+           clip_lo: float = None, clip_hi: float = None,
+           span_lo: float = None, span_hi: float = None) -> tuple[Image.Image, dict]:
     """Decode one thermal frame.
 
-    With no range the colours span the frame's own min..max (automatic contrast).
-    Given ``tmin``/``tmax`` in degrees, the ramp is pinned to that band instead and
-    everything outside it is drawn white - so a narrow band can be picked out of a
-    scene without the colours sliding around as the scene changes.
+    Two independent bands, which is how the vendor software works:
+
+    * ``clip_lo``/``clip_hi`` decide what is shown at all - anything outside is
+      drawn white, which is how you ignore a 25 C room and look only at what is
+      above 35 C.
+    * ``span_lo``/``span_hi`` decide what the palette *spans*. Leave either unset
+      and it is taken from the data that survives the clip, so the colours always
+      use their full range over what you are actually looking at; set both and the
+      whole palette maps onto that slice (e.g. 20.0-22.5 C on a board).
+
+    With everything unset this behaves as it always did: colours across the
+    frame's own min..max.
     """
     vals = struct.unpack_from("<%dH" % N, frame, PAYLOAD_OFFSET)
     lo, hi = min(vals), max(vals)
-    band_lo = band_hi = None
-    if tmin is None or tmax is None or tmax <= tmin:
-        clo, chi = lo, hi          # automatic
-    else:
-        band_lo, band_hi = int((tmin - offset) / scale), int((tmax - offset) / scale)
-        # The band is a window, not the ramp: the palette still spreads across the
-        # temperatures actually inside it, so a wide band does not collapse the
-        # whole scene into one colour, and outside it is drawn white.
-        inside = [v for v in vals if band_lo <= v <= band_hi]
-        clo, chi = (min(inside), max(inside)) if inside else (band_lo, band_hi)
-        if chi <= clo:
-            clo, chi = band_lo, band_hi
-    span = (chi - clo) or 1
+    raw = lambda c: None if c is None else int((c - offset) / scale)
+    clo, chi = raw(clip_lo), raw(clip_hi)
+    shown = [v for v in vals if (clo is None or v >= clo) and (chi is None or v <= chi)]
+    base = shown or vals
+    slo = raw(span_lo); shi = raw(span_hi)
+    if slo is None: slo = min(base)
+    if shi is None: shi = max(base)
+    if shi <= slo: shi = slo + 1
+    span = shi - slo
     lut = LUTS.get(palette, LUTS["rainbow"])
     rgb = bytearray(N * 3)
     for i, v in enumerate(vals):
-        if band_lo is not None and (v < band_lo or v > band_hi):
+        if (clo is not None and v < clo) or (chi is not None and v > chi):
             rgb[i * 3:i * 3 + 3] = b"\xff\xff\xff"
-        else:
-            b = (v - clo) * 255 // span
-            b = 0 if b < 0 else 255 if b > 255 else b
-            rgb[i * 3:i * 3 + 3] = lut[b * 3:b * 3 + 3]
+            continue
+        b = (v - slo) * 255 // span
+        b = 0 if b < 0 else 255 if b > 255 else b
+        rgb[i * 3:i * 3 + 3] = lut[b * 3:b * 3 + 3]
     img = Image.frombytes("RGB", (W, H), bytes(rgb))
     hot = max(range(N), key=lambda i: vals[i])
     cold = min(range(N), key=lambda i: vals[i])

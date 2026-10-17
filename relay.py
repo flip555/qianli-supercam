@@ -35,7 +35,8 @@ _palette = {"name": PALETTE}          # live palette - the GUI can change it
 
 
 TRANGE_PATH = os.path.join(os.path.dirname(CAL_PATH), "trange.json")
-_trange = {"min": None, "max": None}      # live temperature band (None = automatic)
+_trange = {"clip_lo": None, "clip_hi": None,   # shown at all (None = no bound)
+           "span_lo": None, "span_hi": None}   # palette span   (None = automatic)
 
 
 def _load_trange():
@@ -43,11 +44,12 @@ def _load_trange():
     try:
         with open(TRANGE_PATH) as f:
             t = json.load(f)
-        lo, hi = t.get("min"), t.get("max")
-        if lo is not None and hi is not None:
-            _trange["min"], _trange["max"] = float(lo), float(hi)
-            print("temperature band restored: %.1f-%.1f C" % (_trange["min"], _trange["max"]),
-                  flush=True)
+        for k in ("clip_lo", "clip_hi", "span_lo", "span_hi"):
+            if t.get(k) is not None:
+                _trange[k] = float(t[k])
+        print("thermal bands restored: clip %s-%s, span %s-%s"
+              % tuple(str(_trange[k]) for k in ("clip_lo", "clip_hi", "span_lo", "span_hi")),
+              flush=True)
     except Exception:
         pass
 
@@ -285,7 +287,8 @@ def _thermal_worker(client, sock, data):
         return
     try:
         img, stats = TH.decode(frames[-1], _palette["name"], SCALE, OFFSET,
-                               _trange["min"], _trange["max"])
+                               _trange["clip_lo"], _trange["clip_hi"],
+                               _trange["span_lo"], _trange["span_hi"])
         out = io.BytesIO(); img.save(out, format="JPEG", quality=80)
         jpeg = out.getvalue()
     except Exception:
@@ -874,37 +877,32 @@ class H(http.server.BaseHTTPRequestHandler):
         elif p == "/trange":
             import json, urllib.parse
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            bounds = {"clip_lo": q.get("clip_lo", q.get("min")) or [None],
+                      "clip_hi": q.get("clip_hi", q.get("max")) or [None],
+                      "span_lo": q.get("span_lo") or [None],
+                      "span_hi": q.get("span_hi") or [None]}
             if "auto" in q:
-                _trange["min"] = _trange["max"] = None
-            elif "min" in q and "max" in q:
+                for k in _trange:
+                    _trange[k] = None
+                changed = True
+            else:
+                changed = any(c[0] is not None for c in bounds.values())
                 try:
-                    lo, hi = float(q["min"][0]), float(q["max"][0])
-                    if hi <= lo:
-                        raise ValueError("max must exceed min")
-                    _trange["min"], _trange["max"] = lo, hi
+                    for k, (v,) in bounds.items():
+                        _trange[k] = None if v in (None, "", "auto") else float(v)
                 except Exception as e:
                     out = json.dumps({"ok": False, "error": str(e)}).encode()
                     self.send_response(400)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(out)))
                     self.end_headers(); self.wfile.write(out); return
-            else:
-                out = json.dumps({"ok": True, "min": _trange["min"], "max": _trange["max"],
-                                  "auto": _trange["min"] is None}).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(out)))
-                self.end_headers(); self.wfile.write(out); return
-            try:
-                with open(TRANGE_PATH, "w") as fh:
-                    json.dump({"min": _trange["min"], "max": _trange["max"]}, fh)
-            except Exception:
-                pass
-            print("temperature band -> %s" % ("automatic" if _trange["min"] is None
-                                               else "%.1f-%.1f C" % (_trange["min"], _trange["max"])),
-                  flush=True)
-            out = json.dumps({"ok": True, "min": _trange["min"], "max": _trange["max"],
-                              "auto": _trange["min"] is None}).encode()
+            if changed:
+                try:
+                    with open(TRANGE_PATH, "w") as fh:
+                        json.dump(_trange, fh)
+                except Exception:
+                    pass
+            out = json.dumps(dict({"ok": True}, **_trange)).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))

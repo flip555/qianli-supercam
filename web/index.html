@@ -30,12 +30,15 @@
   .stage *{user-select:none;-webkit-user-select:none}
   .stage img{-webkit-user-drag:none;user-drag:none}
   #vwrap{position:absolute;overflow:hidden;background:#000;transform-origin:center center;
-    transform:translate(var(--tx,0%),var(--ty,0%)) scale(var(--ts,1))}
+    transform:translate(var(--tx,0%),var(--ty,0%))
+      scale(calc(var(--ts,1) * var(--fx,1)), calc(var(--ts,1) * var(--fy,1)))
+      rotate(var(--rot,0deg))}
   #vid{width:100%;height:100%;display:block;object-fit:fill}
   #vidcanvas{width:100%;height:100%;display:none;background:#000}
   #thimg{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover}
   .stage.mode-video #thimg{display:none}
   .stage.mode-thermal #vid{visibility:hidden}
+  .stage.mode-fusion #thimg{opacity:var(--fuse,0.55)}
   .stage.mode-wipe #thimg{clip-path:inset(0 0 0 var(--split,50%))}
   .stage.mode-pip #thimg{inset:auto 14px 14px auto;width:var(--pipw,26%);height:auto;
     border:1px solid #3a4553;border-radius:8px;image-rendering:pixelated;box-shadow:0 6px 24px rgba(0,0,0,.5)}
@@ -71,8 +74,14 @@
   #wipewrap{display:none}
   #wipewrap.on{display:flex}
   #calwrap input[type=range]{width:110px}
-  #trangewrap input[type=number]{width:62px;padding:5px 6px;font-size:12px}
-  #trangewrap input.bad{border-color:#e5484d}
+  #bandwrap input[type=number]{width:58px;padding:5px 6px;font-size:12px}
+  #bandwrap input.bad{border-color:#e5484d}
+  #bandwrap input::placeholder{color:#5c6673}
+  #fusewrap{display:none}
+  #fusewrap.on{display:flex}
+  .pad{display:grid;grid-template-columns:repeat(3,30px);grid-template-rows:repeat(2,26px);gap:2px}
+  .pad button{padding:0;font-size:11px;line-height:1}
+  #nup{grid-area:1/2} #nleft{grid-area:2/1} #nright{grid-area:2/3} #ndown{grid-area:2/2}
   #calwrap label{color:#8b949e;font-size:12px}
   input[type=range]{accent-color:#4a80f0}
   .note{color:#8b949e;margin-top:14px;font-size:13px}
@@ -119,6 +128,7 @@
     <div class="seg" id="modes">
       <button data-mode="pip" data-i18n="mode.pip">PiP</button>
       <button data-mode="wipe" class="on" data-i18n="mode.wipe">Wipe</button>
+      <button data-mode="fusion" data-i18n="mode.fusion">Fusion</button>
       <button data-mode="thermal" data-i18n="mode.thermal">Thermal</button>
       <button data-mode="video" data-i18n="mode.video">Video</button>
     </div>
@@ -129,16 +139,33 @@
       <option value="whitehot" data-i18n="palette.whitehot">white hot</option>
       <option value="blackhot" data-i18n="palette.blackhot">black hot</option>
     </select>
-    <span id="trangewrap"><label for="tmin" data-i18n="label.band">Band °C</label>
-      <input type="number" id="tmin" step="0.5" placeholder="auto" title="lowest temperature shown in colour">
-      <input type="number" id="tmax" step="0.5" placeholder="auto" title="highest temperature shown in colour">
-      <button id="trauto" data-i18n="btn.auto">Auto</button></span>
+    <span id="bandwrap">
+      <label data-i18n="label.show">Show</label>
+      <input type="number" id="clipLo" step="0.5" placeholder="auto" title="hide everything below this">
+      <input type="number" id="clipHi" step="0.5" placeholder="auto" title="hide everything above this">
+      <button id="clipauto" data-i18n="btn.auto">Auto</button>
+      <label data-i18n="label.colours">Colours</label>
+      <input type="number" id="spanLo" step="0.5" placeholder="auto" title="bottom of the colour range">
+      <input type="number" id="spanHi" step="0.5" placeholder="auto" title="top of the colour range">
+      <button id="spanauto" data-i18n="btn.auto">Auto</button>
+    </span>
+    <span id="fusewrap"><label for="fuse" data-i18n="label.fusion">Fusion</label>
+      <input type="range" id="fuse" min="0" max="100" value="55"></span>
     <span id="wipewrap"><label for="wipe" data-i18n="label.split">Split</label>
       <input type="range" id="wipe" min="0" max="100" value="50"></span>
     <span id="calwrap">
       <label for="ts" data-i18n="label.videoScale">Video scale</label><input type="range" id="ts" min="0.5" max="4" step="0.01" value="1">
       <label for="tx" data-i18n="label.x">X</label><input type="range" id="tx" min="-60" max="60" step="0.5" value="0">
       <label for="ty" data-i18n="label.y">Y</label><input type="range" id="ty" min="-60" max="60" step="0.5" value="0">
+      <span class="pad">
+        <button id="nup" title="nudge up">&#9650;</button>
+        <button id="nleft" title="nudge left">&#9664;</button>
+        <button id="nright" title="nudge right">&#9654;</button>
+        <button id="ndown" title="nudge down">&#9660;</button>
+      </span>
+      <button id="rot90" data-i18n="btn.rotate">Rotate</button>
+      <button id="fliph" data-i18n="btn.fliph">Flip H</button>
+      <button id="flipv" data-i18n="btn.flipv">Flip V</button>
       <button id="calreset" data-i18n="btn.resetSaved">Reset to saved</button>
       <button id="calfactory" class="ghost" data-i18n="btn.centre">Centre</button>
       <button id="calsave" data-i18n="btn.saveDefault">Save as default</button>
@@ -459,7 +486,8 @@ function setMode(m,save){
   /* hide what the current view cannot use */
   const thermal = (m!=='video');
   document.getElementById('pal').style.display   = thermal ? '' : 'none';
-  document.getElementById('trangewrap').style.display = thermal ? '' : 'none';
+  document.getElementById('bandwrap').style.display = thermal ? 'flex' : 'none';
+  document.getElementById('fusewrap').classList.toggle('on', m==='fusion');
   document.getElementById('size').style.display  = (m==='pip') ? '' : 'none';
   layout(); renderMarks(lastStats);
   if(save){ try{ localStorage.setItem(MODE_KEY,m); }catch(e){} }
@@ -476,36 +504,43 @@ palsel.onchange=()=>fetch('/palette?name='+encodeURIComponent(palsel.value))
 fetch('/palette').then(r=>r.json())
   .then(j=>{ if(j.ok && j.palette) palsel.value=j.palette; }).catch(()=>{});
 
-/* thermal temperature band: colour between two temperatures, white outside.
-   Note: onchange fires when a box is left, so a single filled box must NOT be
-   read as "clear the band" - only a complete, sane pair is sent. */
-const tminEl=document.getElementById('tmin'), tmaxEl=document.getElementById('tmax');
-function applyBand(j){
+/* Thermal bands, in the same shape the vendor software uses:
+     Show    - clip window: anything outside is drawn white (hide the 25 C room,
+               look only at what is above 35 C). Either bound may be blank = auto.
+     Colours - what the palette spans. Blank = whatever survives the Show clip,
+               which is why the colours keep their full range by default. */
+const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElementById('clipHi'),
+               spanLo:document.getElementById('spanLo'), spanHi:document.getElementById('spanHi')};
+function applyBands(j){
   if(!j || !j.ok) return;
-  tminEl.value=(j.min==null?'':j.min);
-  tmaxEl.value=(j.max==null?'':j.max);
-  tminEl.placeholder=tmaxEl.placeholder=(j.auto?'auto':'');
+  for(const k in bandEls) bandEls[k].value=(j[k]==null?'':j[k]);
+  for(const k in bandEls) bandEls[k].classList.remove('bad');
 }
-function sendBand(){
-  const lo=parseFloat(tminEl.value), hi=parseFloat(tmaxEl.value);
-  const half=(tminEl.value.trim()===''||tmaxEl.value.trim()==='');
-  tminEl.classList.remove('bad'); tmaxEl.classList.remove('bad');
-  if(half || isNaN(lo) || isNaN(hi)){          /* wait until both are filled in */
-    if(!half && (isNaN(lo)||isNaN(hi))) (isNaN(lo)?tminEl:tmaxEl).classList.add('bad');
-    return;
+function sendBands(keys){
+  const q=[];
+  for(const k of keys){
+    const v=bandEls[k].value.trim();
+    bandEls[k].classList.remove('bad');
+    if(v!=='' && isNaN(parseFloat(v))){ bandEls[k].classList.add('bad'); return; }
+    q.push(k+'='+encodeURIComponent(v===''?'auto':v));
   }
-  if(hi<=lo){ tmaxEl.classList.add('bad'); console.warn('band: max must exceed min'); return; }
-  fetch('/trange?min='+encodeURIComponent(lo)+'&max='+encodeURIComponent(hi),{cache:'no-store'})
-    .then(r=>r.json()).then(applyBand).catch(()=>{});
+  fetch('/trange?'+q.join('&'),{cache:'no-store'}).then(r=>r.json()).then(applyBands).catch(()=>{});
 }
-tminEl.onchange=sendBand; tmaxEl.onchange=sendBand;
-tminEl.onkeydown=tmaxEl.onkeydown=e=>{ if(e.key==='Enter') sendBand(); };
-document.getElementById('trauto').onclick=()=>{
-  tminEl.value=''; tmaxEl.value='';
-  tminEl.classList.remove('bad'); tmaxEl.classList.remove('bad');
-  fetch('/trange?auto=1',{cache:'no-store'}).then(r=>r.json()).then(applyBand).catch(()=>{});
-};
-fetch('/trange',{cache:'no-store'}).then(r=>r.json()).then(applyBand).catch(()=>{});
+for(const k in bandEls){
+  bandEls[k].onchange=()=>sendBands([k]);
+  bandEls[k].onkeydown=e=>{ if(e.key==='Enter') sendBands([k]); };
+}
+document.getElementById('clipauto').onclick=()=>{ bandEls.clipLo.value=''; bandEls.clipHi.value=''; sendBands(['clipLo','clipHi']); };
+document.getElementById('spanauto').onclick=()=>{ bandEls.spanLo.value=''; bandEls.spanHi.value=''; sendBands(['spanLo','spanHi']); };
+fetch('/trange',{cache:'no-store'}).then(r=>r.json()).then(applyBands).catch(()=>{});
+
+/* fusion intensity */
+const fusewrap=document.getElementById('fusewrap'), fuseEl=document.getElementById('fuse');
+const FUSE_KEY='supercam.fuse';
+const setFuse=(v,save=true)=>{ stage.style.setProperty('--fuse',(v/100).toFixed(2));
+  fuseEl.value=v; if(save){ try{ localStorage.setItem(FUSE_KEY,v); }catch(e){} } };
+fuseEl.oninput=e=>setFuse(+e.target.value);
+setFuse(+stored(FUSE_KEY,55),false);
 
 /* wipe (off by default) */
 const wb=document.getElementById('wipebar'), wr=document.getElementById('wipe');
@@ -525,12 +560,15 @@ addEventListener('mouseup',endDrag); addEventListener('touchend',endDrag);
 const stored=(k,d)=>{ try{ const v=localStorage.getItem(k); return v===null?d:v; }catch(e){ return d; } };
 
 /* calibration: the VIDEO moves, the thermal never does */
-const CAL={ts:1,tx:0,ty:0};
+const CAL={ts:1,tx:0,ty:0,fx:1,fy:1,rot:0};
 const ts=document.getElementById('ts'), tx=document.getElementById('tx'), ty=document.getElementById('ty');
 function applyCal(){
   stage.style.setProperty('--ts',CAL.ts);
   stage.style.setProperty('--tx',CAL.tx+'%');
   stage.style.setProperty('--ty',CAL.ty+'%');
+  stage.style.setProperty('--fx',CAL.fx||1);
+  stage.style.setProperty('--fy',CAL.fy||1);
+  stage.style.setProperty('--rot',(CAL.rot||0)+'deg');
   ts.value=CAL.ts; tx.value=CAL.tx; ty.value=CAL.ty;
   try{ localStorage.setItem('supercam.cal',JSON.stringify(CAL)); }catch(e){}
 }
@@ -547,6 +585,16 @@ document.getElementById('calreset').onclick=async()=>{
        CAL.ts=srv.ts; CAL.tx=srv.tx; CAL.ty=srv.ty; applyCal(); }catch(e){}
 };
 document.getElementById('calfactory').onclick=()=>{ CAL.ts=1; CAL.tx=0; CAL.ty=0; applyCal(); };
+/* alignment: nudge pad, rotate and flips, all on the visible layer */
+const NUDGE=0.5;
+const nudge=(dx,dy)=>{ CAL.tx=+(CAL.tx+dx).toFixed(2); CAL.ty=+(CAL.ty+dy).toFixed(2); applyCal(); saveSoon(); };
+document.getElementById('nup').onclick=()=>nudge(0,-NUDGE);
+document.getElementById('ndown').onclick=()=>nudge(0,NUDGE);
+document.getElementById('nleft').onclick=()=>nudge(-NUDGE,0);
+document.getElementById('nright').onclick=()=>nudge(NUDGE,0);
+document.getElementById('rot90').onclick=()=>{ CAL.rot=(((CAL.rot||0)+90)%360); applyCal(); saveSoon(); };
+document.getElementById('fliph').onclick=()=>{ CAL.fx=(CAL.fx===-1?1:-1); applyCal(); saveSoon(); };
+document.getElementById('flipv').onclick=()=>{ CAL.fy=(CAL.fy===-1?1:-1); applyCal(); saveSoon(); };
 document.getElementById('calsave').onclick=e=>{ saveCal();
   e.target.textContent=t('btn.saved'); setTimeout(()=>e.target.textContent=t('btn.saveDefault'),1500); };
 (async()=>{
@@ -667,7 +715,8 @@ document.getElementById('snap').onclick=()=>{
   /* visible layer, with the calibration transform (#vwrap's translate/scale) */
   if(mode!=='thermal' && src){
     const ts=num('--ts',1), tx=num('--tx',0)/100*W, ty=num('--ty',0)/100*H;
-    g.save(); g.translate(W/2+tx,H/2+ty); g.scale(ts,ts);
+    const fx=num('--fx',1), fy=num('--fy',1), rot=(num('--rot',0))*Math.PI/180;
+    g.save(); g.translate(W/2+tx,H/2+ty); g.rotate(rot); g.scale(ts*fx,ts*fy);
     g.drawImage(src,-W/2,-H/2,W,H); g.restore();
   }
   /* thermal layer, mirroring each mode's CSS */
@@ -689,7 +738,9 @@ document.getElementById('snap').onclick=()=>{
         g.drawImage(thimg,dx,dy,tw*sc,th*sc); g.restore();
         g.fillStyle='#fff'; g.fillRect(Math.max(0,sx-1),0,2,H);
       } else {
+        if(mode==='fusion') g.globalAlpha=num('--fuse',0.55);
         g.drawImage(thimg,dx,dy,tw*sc,th*sc);
+        g.globalAlpha=1;
       }
     }
   }

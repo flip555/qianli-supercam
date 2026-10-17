@@ -7,7 +7,7 @@ camera, several badges: this project should work with any of them, in your brows
 
 Point it at your network and it finds the camera, connects, and serves a web GUI.
 
-![SuperCam live view - visible and thermal, in Wipe mode](docs/supercam-example.jpg)
+![SuperCam web GUI - wipe comparison with the isotherm palette, band controls and temperature chart](docs/supercam-example.jpg)
 
 ## Quick start
 
@@ -34,11 +34,21 @@ pip install -r requirements.txt
   origin, since WebCodecs requires a secure context — fall back to a small
   server-side MJPEG transcode, which only runs while somebody is watching.
 * **Thermal channel decoded** — 160×120, 16-bit — with rainbow / ironbow / white-hot /
-  black-hot palettes, switchable live from the GUI and remembered across restarts.
-* **Temperature readout** — max / average / min, with the hottest point, the coldest
-  and up to two further peaks detected and labelled on the image.
-* **Four view modes** — PiP, a draggable **wipe** comparison, or either feed
-  full-frame. The chosen mode and split position are remembered.
+  black-hot palettes and an **isotherm mode** that paints a colour per temperature band.
+* **Isotherm profiles** — a band editor of `lower ~ upper` rows, each with its own
+  colour. Built-in profiles plus your own, saved by name, so a fixed colour scale can be
+  returned to for long-running comparisons.
+* **Two temperature bands** — *Show* clips what is drawn at all (anything outside is
+  white, so a 25 °C room can be ignored while watching for 35 °C and above), and
+  *Colours* pins what the palette spans.
+* **Temperature readout and history** — max / average / min, the hottest and coldest
+  points and two further peaks labelled on the image, plus a **rolling chart** of the
+  three series with 1M / 5M / 10M / 1H windows and a clear button.
+* **Five view modes** — Wipe, PiP, **Fusion**, Thermal and Video. Fusion blends the
+  thermal over the visible feed at an adjustable intensity, and the same intensity
+  applies in Wipe and PiP.
+* **Alignment controls** — a nudge pad, Rotate, Flip H/V and the scale/offset sliders,
+  saved with the calibration, so the visible feed can be registered onto the thermal.
 * **Snapshot** — saves what you actually see: the current mode, split, calibration,
   temperature labels and readout, not just one raw feed.
 * **Camera status at a glance** — the header dot shows live / connected-but-no-frames /
@@ -47,6 +57,8 @@ pip install -r requirements.txt
   reboot it to apply, all from the GUI.
 * **Auto-discovery** — finds cameras on the local network rather than needing a fixed
   IP, and backs off politely when the camera is missing.
+* **Translations** — English, Spanish, French, German and Portuguese, one JSON file per
+  language (see below).
 * **Looks after itself** — the relay runs under a supervisor with a stall watchdog,
   and can update itself from GitHub releases without leaving the browser.
 
@@ -80,30 +92,44 @@ with its own name, which is how the relay identifies it.
 
 ## The web GUI
 
+The view fills the page and the controls sit in a side panel: **View**, **Thermal**,
+**Chart**, **Align** and **Capture**, each collapsible, with the controls that cannot
+affect the current view hidden.
+
 | Mode | What it shows |
 |---|---|
 | **Wipe** | Video with a draggable bar revealing the thermal — the easy way to calibrate (default) |
 | **PiP** | Video with the thermal in a corner inset (three sizes) |
+| **Fusion** | Thermal over the video at an adjustable intensity |
 | **Thermal** | Thermal full-frame, with temperature labels |
 | **Video** | Visible feed only |
 
-Under the view: palette, **temperature band**, PiP size, the wipe position, and the
-calibration sliders (`Video scale`, `X`, `Y`).
+**Temperature bands** (Thermal panel). With nothing set the colours span each frame's
+own min..max, so they slide around as the scene changes. Set **Show** to clip — anything
+outside is drawn white, which is how you ignore a 25 °C room and look only at what is
+above 35 °C — and **Colours** to pin what the palette spans. `Auto` clears either, and
+the relay keeps both across restarts.
 
-**Temperature band** — with no band set the colours span each frame's own min..max,
-so they slide around as the scene changes. Set a minimum and maximum (in °C, `Band °C`
-in the toolbar) and the palette is pinned to that range instead, with everything
-outside it drawn **white** — which is how you pick one component's heat out of a
-board without the rest blowing the scale. `Auto` returns to the automatic span. The
-relay remembers the band across restarts.
+**Isotherm** (Thermal panel → Palette → `isotherm`) draws a colour per temperature band.
+A profile is a list of rows, each `lower ~ upper` with its own colour; `Add band`
+continues from the previous row. `Save as…` names the current bands and `Delete` removes
+your own (built-ins are protected). `pcba 25-60` and `fine 1C` ship with the project.
 
-**Calibration** is stored server-side and shared with every viewer. `Reset to saved`
-returns the sliders to that stored alignment; `Centre` is the hard 1×/0/0 reset. A
-hidden or throttled browser tab can leave an MJPEG stream showing a stale frame, so
-the streams are prodded back to life whenever the tab becomes visible again. The header shows the running version — and turns into an
-update link when a newer release is available — followed by a badge saying whether
-this browser is decoding the feed itself (`codec`) or the relay is transcoding it
-(`mjpeg`).
+**Chart** keeps the last hour of max / average / min in the browser, with 1M / 5M / 10M /
+1H windows and a `Clear` button — a reload does not lose it.
+
+**Align** — a nudge pad (0.5 % a press), Rotate, Flip H, Flip V, and the scale and offset
+sliders. `Reset to saved` returns to the stored alignment; `Centre` is the hard 1×/0/0
+reset. Calibration is stored server-side and shared with every viewer. A hidden or
+throttled browser tab can leave an MJPEG stream showing a stale frame, so the streams are
+prodded back to life whenever the tab becomes visible again.
+
+**Capture** — a snapshot of the composed view (mode, split, fusion, calibration,
+temperature labels and readout), and the camera settings dialog.
+
+The header shows the running version — and turns into an update link when a newer
+release is available — followed by a badge saying whether this browser is decoding the
+feed itself (`codec`) or the relay is transcoding it (`mjpeg`).
 
 ## Updating
 

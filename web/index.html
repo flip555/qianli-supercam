@@ -62,8 +62,9 @@
   .mark b{position:absolute;left:15px;top:-5px;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
     color:#fff;background:rgba(8,10,13,.82);border:1px solid #4a5768;border-radius:5px;
     padding:1px 5px;white-space:nowrap}
-  .mark b{background:none!important;border:0!important;padding:0!important;color:#fff!important;
-    text-shadow:0 0 2px #000,0 0 4px #000,0 0 7px #000;font-size:12px}
+  .mark b{background:rgba(8,10,13,.82)!important;border:1px solid #4a5768!important;
+    border-radius:4px;padding:1px 5px!important;color:#fff!important;font-size:11px;font-family:ui-monospace,Menlo,monospace;
+    box-shadow:0 2px 10px rgba(0,0,0,.55)}
   .mark.cold i{border-color:#7fd1ff}
   .mark.cold b{border-color:#2b5a75}
   .mark.peak i{width:9px;height:9px;border-color:#ffd166}
@@ -232,7 +233,10 @@
           <canvas id="vidcanvas"></canvas></div>
         <img id="thimg" src="/stream.mjpg" data-i18n-alt="img.thermal" alt="thermal" draggable="false">
         <div class="wipebar" id="wipebar"></div>
-        <svg id="roiLayer" viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice"></svg>
+        <svg id="roiLayer" viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice">
+          <defs><filter id="lblshadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="0.3" stdDeviation="0.55" flood-color="#000" flood-opacity="0.65"/>
+          </filter></defs></svg>
         <div id="marks"></div>
         <div id="frozenBadge" data-i18n="label.frozen">FROZEN</div>
         <div id="dtBadge" data-i18n="label.dt">&#916;T</div>
@@ -807,6 +811,7 @@ const MODE_KEY='supercam.mode';
 function setMode(m,save){
   document.querySelectorAll('#modes button').forEach(x=>x.classList.toggle('on', x.dataset.mode===m));
   stage.className='stage mode-'+m;
+  stage.classList.add('wipe-'+wipeSide);   /* setMode rebuilds the list, so restore it */
   document.getElementById('wipewrap').classList.toggle('on', m==='wipe');
   /* hide what the current view cannot use */
   const thermal = (m!=='video');
@@ -924,9 +929,12 @@ function stageToThermal(ev){
   const x=Math.round(((ev.clientX-r.left)-ox)/sc), y=Math.round(((ev.clientY-r.top)-oy)/sc);
   return (x>=0&&x<160&&y>=0&&y<120)?[x,y]:null;
 }
-function labelSvg(x, y, txt, size){
-  return '<text x="'+x+'" y="'+y+'" font-size="'+(size||2.4)+'" fill="#fff" stroke="#000" '+
-         'stroke-width="0.3" paint-order="stroke" font-family="ui-monospace,Menlo,monospace">'+txt+'</text>';
+function labelSvg(x, y, txt, size, colour){
+  const sz=size||2.0, w=txt.length*sz*0.62+1.8, h=sz*1.6;
+  return '<g filter="url(#lblshadow)"><rect x="'+(x-0.6)+'" y="'+(y-h+0.5)+'" width="'+w+'" height="'+h+'" rx="0.9" '+
+         'fill="rgba(8,10,13,0.74)" stroke="rgba(74,87,104,0.9)" stroke-width="0.15"/>'+
+         '<text x="'+(x+0.3)+'" y="'+(y-0.2)+'" font-size="'+sz+'" fill="'+(colour||'#fff')+'" '+
+         'font-family="ui-monospace,Menlo,monospace">'+txt+'</text></g>';
 }
 function roiDraw(){
   if(!roiLayer) return;
@@ -954,11 +962,13 @@ function roiDraw(){
     const pts=r.pts||[]; if(!pts.length) return;
     const xs=pts.map(q=>q[0]), ys=pts.map(q=>q[1]);
     const x=Math.min.apply(null,xs), y=Math.max(4, Math.min.apply(null,ys)-1.4);
-    parts.push(labelSvg(x, y, fmtN(st.max_c)+'/'+fmtN(st.min_c), 2.6));
     if(r.kind==='point'){
-      const pt=r.pts[0];
-      parts.push(labelSvg(pt[0]+2.4, pt[1]-2.4, fmtT(st.avg_c), 2.3));
+      /* one pixel, one value: the peak pair would sit on top of this label */
+      const pt=pts[0];
+      parts.push(labelSvg(pt[0]+2.2, pt[1]-2.2, fmtT(st.avg_c), 2.0, '#ffd166'));
+      return;
     }
+    parts.push(labelSvg(x, y, fmtN(st.max_c)+'/'+fmtN(st.min_c)+'\u00b0'+TUNIT, 2.0, '#ffd166'));
   });
   if(POLY.length){
     const pts=POLY.map(p=>p[0]+','+p[1]).join(' ');
@@ -1804,7 +1814,7 @@ document.getElementById('camapply').onclick=async()=>{
 setTimeout(()=>{ fetch('/camera',{cache:'no-store'}).then(r=>r.json())
   .then(j=>{ if(j.ok){ CAM=j; } }).catch(()=>{}); },5000);
 
-document.getElementById('snap').onclick=()=>{
+function takeSnapshot(){
   const cs=getComputedStyle(stage);
   const num=(k,d)=>{ const v=parseFloat(cs.getPropertyValue(k)); return isNaN(v)?d:v; };
   const mode=(stage.className.match(/mode-([a-z]+)/)||[])[1]||'pip';
@@ -1888,12 +1898,35 @@ document.getElementById('snap').onclick=()=>{
     body:JSON.stringify({image:url})})
     .then(r=>r.json()).then(j=>{ if(j.ok){ toast(t('snap.saved')+' '+j.name); snapsLoad(); } })
     .catch(()=>{});
-};
+}
+document.getElementById('snap').onclick=takeSnapshot;
+document.getElementById('snapFloat').onclick=takeSnapshot;
 /* apply the remembered view last, once everything above is defined */
+(function rememberPanels(){
+  /* every section - and every sub-block - keeps its open/closed state per browser */
+  const KEY='supercam.open.';
+  document.querySelectorAll('aside details').forEach(function(d,i){
+    if(!d.id){
+      const sm=d.querySelector('summary');
+      let tag=(sm && sm.getAttribute('data-i18n')) || ('s'+i);
+      d.id='sec-'+tag.replace(/[^a-z0-9]+/gi,'-');
+    }
+    try{
+      const v=localStorage.getItem(KEY+d.id);
+      if(v==='1') d.open=true;
+      else if(v==='0') d.open=false;
+    }catch(e){}
+    d.addEventListener('toggle',function(){
+      try{ localStorage.setItem(KEY+d.id, d.open?'1':'0'); }catch(e){}
+    });
+  });
+})();
 loadLang(document.getElementById('lang') ? document.getElementById('lang').value : 'en');
-applyWipeSide(stored('supercam.wipeside','r'));
+let savedSide='r';
+try{ const v=localStorage.getItem('supercam.wipeside'); if(v==='l'||v==='t'||v==='b') savedSide=v; }catch(e){}
 setSplit(+stored(SPLIT_KEY,50),false);
 setMode(stored(MODE_KEY,'wipe'),false);
+applyWipeSide(savedSide);
 </script>
 </body>
 </html>

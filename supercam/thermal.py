@@ -107,6 +107,24 @@ def _peaks(vals, n: int = 3, min_sep: int = 14, margin: int = 3):
     return out
 
 
+def _denoise(vals) -> list:
+    """3x3 median, so a single dead pixel cannot win the min/max.
+
+    These sensors have isolated bad pixels (ours reports about 0.35 C at the corner),
+    and before this the reported minimum was always that pixel rather than the
+    coldest real spot. A median keeps real features, which span several pixels.
+    """
+    out = list(vals)
+    for y in range(1, H - 1):
+        row = y * W
+        for x in range(1, W - 1):
+            i = row + x
+            out[i] = sorted((vals[i - W - 1], vals[i - W], vals[i - W + 1],
+                             vals[i - 1], vals[i], vals[i + 1],
+                             vals[i + W - 1], vals[i + W], vals[i + W + 1]))[4]
+    return out
+
+
 def decode(frame: bytes, palette: str = "rainbow",
            scale: float = 0.01, offset: float = 0.0,
            clip_lo: float = None, clip_hi: float = None,
@@ -128,10 +146,11 @@ def decode(frame: bytes, palette: str = "rainbow",
     frame's own min..max.
     """
     vals = struct.unpack_from("<%dH" % N, frame, PAYLOAD_OFFSET)
-    lo, hi = min(vals), max(vals)
+    svals = _denoise(vals)          # stats ignore dead pixels; the image does not
+    lo, hi = min(svals), max(svals)
     raw = lambda c: None if c is None else int((c - offset) / scale)
     clo, chi = raw(clip_lo), raw(clip_hi)
-    shown = [v for v in vals if (clo is None or v >= clo) and (chi is None or v <= chi)]
+    shown = [v for v in svals if (clo is None or v >= clo) and (chi is None or v <= chi)]
     base = shown or vals
     slo = raw(span_lo); shi = raw(span_hi)
     if slo is None: slo = min(base)
@@ -169,9 +188,9 @@ def decode(frame: bytes, palette: str = "rainbow",
         b = 0 if b < 0 else 255 if b > 255 else b
         rgb[i * 3:i * 3 + 3] = lut[b * 3:b * 3 + 3]
     img = Image.frombytes("RGB", (W, H), bytes(rgb))
-    hot = max(range(N), key=lambda i: vals[i])
-    cold = min(range(N), key=lambda i: vals[i])
-    peaks = _peaks(vals)
+    hot = max(range(N), key=lambda i: svals[i])
+    cold = min(range(N), key=lambda i: svals[i])
+    peaks = _peaks(svals)
     stats = {
         "min_c": round(lo * scale + offset, 2),
         "max_c": round(hi * scale + offset, 2),

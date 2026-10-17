@@ -1144,30 +1144,8 @@ class H(http.server.BaseHTTPRequestHandler):
             return ""
 
     def _form(self):
-        """Form fields from either urlencoded or multipart bodies.
-
-        The GUI uses FormData, which is multipart/form-data - parsing only urlencoded
-        bodies silently produced an empty dict, so half the settings panel appeared to
-        do nothing (a span change fell through to the capture branch, for instance).
-        """
-        body = self._body()
-        ctype = (self.headers.get("Content-Type") or "").lower()
-        if "multipart/form-data" in ctype:
-            m = re.search(r"boundary=(?:\"([^\"]+)\"|([^;]+))", ctype)
-            if not m:
-                return {}
-            boundary = (m.group(1) or m.group(2)).strip()
-            out = {}
-            for part in body.split("--" + boundary):
-                if 'name="' not in part:
-                    continue
-                head, _, value = part.partition("\r\n\r\n")
-                nm = re.search(r'name="([^"]*)"', head)
-                if not nm:
-                    continue
-                out[nm.group(1)] = value.rstrip("\r\n-")
-            return out
-        return {k: v[0] for k, v in urllib.parse.parse_qs(body).items()}
+        """Form fields from a urlencoded body (the only form encoding sent by the GUI)."""
+        return {k: v[0] for k, v in urllib.parse.parse_qs(self._body()).items()}
 
     def _route_public(self, p):
         """Sign-in, first-run setup and sign-out: reachable without a session."""

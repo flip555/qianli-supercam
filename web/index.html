@@ -279,7 +279,7 @@
         <summary data-i18n="panel.measure">Measure</summary>
         <div class="ctl">
           <button id="addPoint" data-i18n="btn.point">Point</button>
-          <button id="addBox" data-i18n="btn.box">Box</button>
+          <button id="addBox" data-i18n="btn.box">Box</button><button id="addPoly" data-i18n="btn.poly">Polygon</button>
         </div>
         <div id="regionList"></div>
         <div class="ctl">
@@ -299,6 +299,7 @@
             <button data-win="3600">1H</button>
           </div>
           <button id="chartclear" class="ghost" data-i18n="btn.clear">Clear</button>
+          <a class="btnlink" href="/history.csv" download data-i18n="btn.csv">CSV</a>
         </div>
       </details>
       <details class="sec" open id="alarmSec">
@@ -349,6 +350,7 @@
         <div class="ctl">
           <button id="snap" data-i18n="btn.snapshot">Snapshot</button>
           <button id="cog" data-i18n="btn.camera" data-i18n-title="btn.camera.title">&#9881; Camera</button></div>
+        <div id="snapList"></div>
       </details>
     </aside>
   </div>
@@ -836,8 +838,17 @@ function roiDraw(){
       return '<rect x="'+Math.min(a[0],b[0])+'" y="'+Math.min(a[1],b[1])+'" width="'+Math.abs(a[0]-b[0])+
              '" height="'+Math.abs(a[1]-b[1])+'" fill="none" stroke="'+col+'" stroke-width="1.5"/>';
     }
+    if(r.kind==='poly'){
+      const pts=(r.pts||[]).map(p=>p[0]+','+p[1]).join(' ');
+      return '<polygon points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.5"/>';
+    }
     return '';
   });
+  if(POLY.length){
+    const pts=POLY.map(p=>p[0]+','+p[1]).join(' ');
+    parts.push('<polyline points="'+pts+'" fill="none" stroke="#ffd166" stroke-width="1.5" stroke-dasharray="3 2"/>');
+    POLY.forEach(p=>parts.push('<circle cx="'+p[0]+'" cy="'+p[1]+'" r="1.8" fill="#ffd166"/>'));
+  }
   if(ROIDRAG && ROISTART){
     parts.push('<rect x="'+ROISTART[0]+'" y="'+ROISTART[1]+'" width="0" height="0" id="roiPrev" fill="none" stroke="#ffd166" stroke-width="1"/>');
   }
@@ -876,6 +887,15 @@ async function roiLoad(){
       if(typeof tcalRender==='function') tcalRender({ok:true,scale:TCAL.scale,offset:TCAL.offset}); }
   }catch(e){}
 }
+let POLY=[];
+function polyNeedsClosing(pt){
+  if(POLY.length<3) return false;
+  return Math.hypot(pt[0]-POLY[0][0], pt[1]-POLY[0][1]) <= 4;
+}
+function polyFinish(){
+  if(POLY.length>=3) roiAdd('poly', POLY.slice());
+  POLY=[]; setRoiMode(null); roiDraw();
+}
 function setRoiMode(m){
   ROIMODE=m;
   document.body.classList.toggle('roi-mode', !!m);
@@ -885,11 +905,16 @@ function setRoiMode(m){
 }
 document.getElementById('addPoint').onclick=()=>setRoiMode(ROIMODE==='point'?null:'point');
 document.getElementById('addBox').onclick=()=>setRoiMode(ROIMODE==='box'?null:'box');
+document.getElementById('addPoly').onclick=()=>{ POLY=[]; roiDraw(); setRoiMode(ROIMODE==='poly'?null:'poly'); };
 document.getElementById('csvClear').onclick=()=>{ fetch('/regions.csv?clear=1',{cache:'no-store'}).catch(()=>{}); };
 stage.addEventListener('pointerdown',ev=>{
   if(!ROIMODE || AUTH_ROLE!=='admin') return;
   const pt=stageToThermal(ev); if(!pt) return;
   if(ROIMODE==='point'){ roiAdd('point',[pt]); setRoiMode(null); return; }
+  if(ROIMODE==='poly'){
+    if(polyNeedsClosing(pt)){ polyFinish(); } else { POLY.push(pt); roiDraw(); }
+    return;
+  }
   ROIDRAG=true; ROISTART=pt; roiDraw();
   try{ stage.setPointerCapture(ev.pointerId); }catch(e){}
   ev.preventDefault();
@@ -913,7 +938,8 @@ stage.addEventListener('pointerup',ev=>{
   setRoiMode(null);
 });
 stage.addEventListener('pointercancel',()=>{ ROIDRAG=false; ROISTART=null; roiDraw(); setRoiMode(null); });
-addEventListener('keydown',ev=>{ if(ev.key==='Escape'){ setRoiMode(null); ROIDRAG=false; ROISTART=null; roiDraw(); } });
+addEventListener('keydown',ev=>{ if(ev.key==='Escape'){ POLY=[]; setRoiMode(null); ROIDRAG=false; ROISTART=null; roiDraw(); } });
+addEventListener('keydown',ev=>{ if(ev.key==='Enter' && ROIMODE==='poly') polyFinish(); });
 roiLoad();
 setInterval(()=>{ if(document.getElementById('regionList')) roiLoad(); }, 3000);
 
@@ -1140,6 +1166,23 @@ addEventListener('keydown',ev=>{
     if(m) setMode(m,true);
   }
 });
+
+/* ---- snapshot gallery ---- */
+function snapsRender(j){
+  const box=document.getElementById('snapList'); if(!box || !j || !j.ok) return;
+  const items=j.snapshots||[];
+  box.innerHTML = items.length ? items.map(s=>
+    '<div class="roirow">'+
+      '<a href="/snapshots/'+encodeURIComponent(s.name)+'.jpg" target="_blank" rel="noopener">'+
+      '<img src="/snapshots/'+encodeURIComponent(s.name)+'.jpg" alt="" loading="lazy" '+
+      'style="width:52px;height:39px;object-fit:cover;border-radius:4px;border:1px solid #2b3542"></a>'+
+      '<span class="roiname">'+s.name+(s.raw?' \u00b7 raw':'')+'</span>'+
+      '<span class="roival">'+Math.round((s.size||0)/1024)+' KB</span>'+
+      '<a class="btnlink" href="/snapshot.zip?name='+encodeURIComponent(s.name)+'">'+t('btn.download')+'</a></div>'
+  ).join('') : '<p class=hint>'+t('snap.none')+'</p>';
+}
+function snapsLoad(){ fetch('/snapshots',{cache:'no-store'}).then(r=>r.json()).then(snapsRender).catch(()=>{}); }
+snapsLoad();
 
 const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElementById('clipHi'),
                spanLo:document.getElementById('spanLo'), spanHi:document.getElementById('spanHi')};
@@ -1513,8 +1556,13 @@ document.getElementById('snap').onclick=()=>{
     g.strokeStyle='#2b3542'; g.lineWidth=1; g.strokeRect(x+0.5,y+0.5,w-1,h-1);
     g.fillStyle='#e6e8eb'; g.fillText(txt,x+12,y+h/2);
   }
+  const url=c.toDataURL('image/jpeg',0.92);
   const a=document.createElement('a');
-  a.download='supercam-'+mode+'.jpg'; a.href=c.toDataURL('image/jpeg',0.92); a.click();
+  a.download='supercam-'+mode+'.jpg'; a.href=url; a.click();
+  fetch('/snapshots',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({image:url})})
+    .then(r=>r.json()).then(j=>{ if(j.ok){ toast(t('snap.saved')+' '+j.name); snapsLoad(); } })
+    .catch(()=>{});
 };
 /* apply the remembered view last, once everything above is defined */
 loadLang(document.getElementById('lang') ? document.getElementById('lang').value : 'en');

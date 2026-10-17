@@ -5,7 +5,7 @@ Handshake reuses the reverse-engineered client; the read loop is the one that
 provably pulls the full stream (~1.2 MB/s). The browser decodes the visible
 H.264 itself (WebCodecs on /raw.h264); thermal is served as MJPEG.
 """
-import collections, csv, http.server, io, json, os, queue, socket, socketserver, subprocess, sys, threading, time
+import base64, collections, csv, http.server, io, json, os, queue, socket, socketserver, subprocess, sys, threading, time, zipfile
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -242,6 +242,7 @@ def _on_alarms(fired):
 
 _load_alarms()
 
+SNAPSHOT_DIR = os.path.join(os.path.dirname(CAL_PATH), "snapshots")
 PREREC_PATH = os.path.join(os.path.dirname(CAL_PATH), "prerecord.json")
 PREREC_DIR = os.path.join(os.path.dirname(CAL_PATH), "captures")
 PREREC = PreRecord(PREREC_DIR)
@@ -610,6 +611,7 @@ def _thermal_worker(client, sock, data):
         pass
     with _lock:
         _state["tjpeg"] = jpeg; _state["tts"] = time.time()
+        _state["traw"] = frames[-1]
         _state["stats"] = stats; _state["frames"] += 1
         now = time.time()
         if now - _hist_last >= 1.0:
@@ -981,7 +983,8 @@ class H(http.server.BaseHTTPRequestHandler):
     API_PATHS = ("/health", "/version", "/thermal.json", "/history.json", "/camera",
                  "/reboot", "/update", "/calibration", "/palette", "/trange", "/isotherm",
                  "/whoami", "/regions", "/regions.csv", "/alarms", "/notify",
-                 "/captures", "/captures.zip", "/prerecord", "/tcal")
+                 "/captures", "/captures.zip", "/prerecord", "/tcal",
+                 "/history.csv", "/snapshots", "/snapshot.zip")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
@@ -1241,6 +1244,112 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Content-Length", str(len(j)))
                 self.end_headers(); self.wfile.write(j)
+        elif p == "/history.csv":
+            with _lock:
+                rows = list(_hist)
+            lines = ["time,min_c,max_c,avg_c"]
+            for ts, mn, mx, mean in rows:
+                lines.append("%s,%.2f,%.2f,%.2f"
+                             % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)), mn, mx, mean))
+            data = ("\n".join(lines) + "\n").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="temperature.csv"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        elif p.startswith("/snapshots/"):
+            name = os.path.basename(p[len("/snapshots/"):])
+            path = os.path.join(SNAPSHOT_DIR, name)
+            if not name.endswith(".jpg") or not os.path.exists(path):
+                self._json_out(404, {"ok": False, "error": "no such snapshot"})
+                return
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except Exception:
+                self._json_out(500, {"ok": False, "error": "cannot read snapshot"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        elif p == "/snapshots":
+            if self.command == "POST":
+                try:
+                    body = json.loads(self._body() or "{}")
+                except Exception:
+                    body = {}
+                image = body.get("image") or ""
+                if not image.startswith("data:image/jpeg;base64,"):
+                    self._json_out(400, {"ok": False, "error": "expected a jpeg data URL"})
+                    return
+                try:
+                    jpeg = base64.b64decode(image.split(",", 1)[1])
+                except Exception:
+                    self._json_out(400, {"ok": False, "error": "bad image data"})
+                    return
+                stamp = time.strftime("%Y%m%d-%H%M%S")
+                try:
+                    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+                    base = os.path.join(SNAPSHOT_DIR, stamp)
+                    with open(base + ".jpg", "wb") as f:
+                        f.write(jpeg)
+                    with _lock:
+                        raw = _state.get("traw")
+                        now_stats = _state.get("stats")
+                    if raw:
+                        with open(base + ".raw", "wb") as f:
+                            f.write(raw)
+                    meta = {"at": round(time.time(), 1), "stats": now_stats,
+                            "palette": _palette["name"], "bands": dict(_trange),
+                            "scale": _tcal["scale"], "offset": _tcal["offset"],
+                            "user": getattr(self, "user", None),
+                            "raw_bytes": len(raw) if raw else 0}
+                    with open(base + ".json", "w") as f:
+                        json.dump(meta, f, indent=2, default=str)
+                except Exception as exc:
+                    self._json_out(500, {"ok": False, "error": str(exc)})
+                    return
+                print("snapshot saved: %s" % stamp, flush=True)
+                self._json_out(200, {"ok": True, "name": stamp})
+                return
+            items = []
+            try:
+                for name in sorted(os.listdir(SNAPSHOT_DIR), reverse=True):
+                    if not name.endswith(".jpg"):
+                        continue
+                    base = os.path.join(SNAPSHOT_DIR, name[:-4])
+                    st = os.stat(base + ".jpg")
+                    items.append({"name": name[:-4], "size": st.st_size,
+                                  "at": round(st.st_mtime, 1),
+                                  "raw": os.path.exists(base + ".raw")})
+                    if len(items) >= 60:
+                        break
+            except Exception:
+                pass
+            self._json_out(200, {"ok": True, "snapshots": items})
+        elif p == "/snapshot.zip":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            name = os.path.basename((q.get("name") or [""])[0])
+            base = os.path.join(SNAPSHOT_DIR, name)
+            if not name or not os.path.exists(base + ".jpg"):
+                self._json_out(404, {"ok": False, "error": "no such snapshot"})
+                return
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                for ext in (".jpg", ".raw", ".json"):
+                    if os.path.exists(base + ext):
+                        z.write(base + ext, name + ext)
+            data = buf.getvalue()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", 'attachment; filename="%s.zip"' % name)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         elif p == "/tcal":
             if self.command == "POST":
                 try:

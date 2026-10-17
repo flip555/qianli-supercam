@@ -1223,6 +1223,9 @@ class H(http.server.BaseHTTPRequestHandler):
             return True
         self.role = sess["role"]
         self.user = sess.get("user") or AUTH.cfg.get("username")
+        if p == "/notify" and self.role != "admin":
+            self._json_out(403, {"ok": False, "error": "admin only"})
+            return True
         if self._is_write(p) and self.role != "admin":
             cap = self.GUEST_CAPS.get(p)
             if not (cap and AUTH.can(self.role, cap)):

@@ -16,6 +16,7 @@ from supercam import settings as CFG
 from supercam import reboot as REBOOT
 from supercam import update as UPD
 from supercam.auth import Auth, check_password
+from supercam import auth as authmod
 from supercam import authpages
 from supercam import regions as REG
 from supercam import alarms as AL
@@ -1073,9 +1074,13 @@ class H(http.server.BaseHTTPRequestHandler):
             time.sleep(0.02)
 
     # ---------- authentication plumbing ----------
-    # A guest may measure and take snapshots: useful work that does not reconfigure
-    # anything. Everything else stays admin-only.
-    GUEST_WRITES = ("/regions", "/snapshots")
+    # Which guest permission a write needs. Anything absent stays admin-only,
+    # including the camera, the updater, the account and notification credentials.
+    GUEST_CAPS = {"/regions": "measure", "/snapshots": "snapshot",
+                  "/palette": "display", "/trange": "display", "/isotherm": "display",
+                  "/reference": "reference", "/references": "reference",
+                  "/tcal": "calibration", "/alarms": "alarms",
+                  "/prerecord": "prerecord"}
 
     API_PATHS = ("/health", "/version", "/thermal.json", "/history.json", "/camera",
                  "/reboot", "/update", "/calibration", "/palette", "/trange", "/isotherm",
@@ -1218,16 +1223,19 @@ class H(http.server.BaseHTTPRequestHandler):
             return True
         self.role = sess["role"]
         self.user = sess.get("user") or AUTH.cfg.get("username")
-        if self._is_write(p) and self.role != "admin" and p not in self.GUEST_WRITES:
-            self._json_out(403, {"ok": False, "error": "read-only guest account"})
-            return True
+        if self._is_write(p) and self.role != "admin":
+            cap = self.GUEST_CAPS.get(p)
+            if not (cap and AUTH.can(self.role, cap)):
+                self._json_out(403, {"ok": False,
+                                     "error": "not permitted for this account"})
+                return True
         return False
 
     def _route_authed(self, p):
         if p == "/whoami":
             self._json_out(200, {"ok": True, "role": self.role,
                                  "username": getattr(self, "user", None) or AUTH.cfg.get("username"),
-                                 "auth": AUTH.enabled()})
+                                 "auth": AUTH.enabled(), "perms": AUTH.perms()})
             return True
         if p == "/account":
             if self.role != "admin":
@@ -1258,6 +1266,9 @@ class H(http.server.BaseHTTPRequestHandler):
                 elif action == "login":
                     AUTH.set_enabled(f.get("enabled") == "1")
                     msg = "Sign-in is %s." % ("required" if AUTH.enabled() else "off")
+                elif action == "perms":
+                    AUTH.set_perms({cap: ("p_" + cap) in f for cap in authmod.GUEST_PERMS})
+                    msg = "Guest permissions updated."
                 elif action == "guest":
                     on = f.get("enabled") == "1"
                     pw = f.get("password") or ""
@@ -1269,7 +1280,7 @@ class H(http.server.BaseHTTPRequestHandler):
             self._page(authpages.account(AUTH.cfg.get("username"), self.role,
                                          AUTH.enabled(),
                                          bool((AUTH.cfg.get("guest") or {}).get("enabled")),
-                                         msg, err))
+                                         msg, err, AUTH.perms()))
             return True
         return False
 

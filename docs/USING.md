@@ -23,6 +23,12 @@ a **setup page** until an account exists.
   python -m supercam.auth --reset      # reopen the setup page (sign-in stays on)
   ```
 
+
+The admin grants capabilities per feature under **Account → Guest permissions**: measure,
+snapshot, palette and bands, reference frame, calibration, alarms and the clip window.
+Camera settings, the updater, the account page and notification credentials are never
+grantable. The relay enforces it per request and the page hides what was not given.
+
 ## Choosing a view
 
 | Mode | What you see |

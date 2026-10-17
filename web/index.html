@@ -74,7 +74,15 @@
   .sec>summary::before{content:"\25be  ";color:#5c6673}
   .sec[open]>summary::before{content:"\25b4  "}
   .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
-  body.guest #thermalSec,body.guest #alignSec{display:none}
+  body.guest #alignSec{display:none}
+  body.no-thermal #thermalSec{display:none}
+  body.no-display #pal,body.no-display #bandwrap,body.no-display #isoBands,
+  body.no-display #profileRow,body.no-display #stepsRow{display:none}
+  body.no-reference #refBlock{display:none}
+  body.no-calibration #tcalBlock{display:none}
+  body.no-measure #measureSec{display:none}
+  body.no-snapshot #snap{display:none}
+  body.no-alarms #alarmSec{display:none}
   body.guest #cog{display:none}
   #roiLayer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   #toast{position:fixed;right:18px;bottom:18px;max-width:380px;background:#3a1d1d;border:1px solid #7a2c2c;
@@ -108,7 +116,6 @@
     border:1px solid #2b3542;border-radius:6px;color:#e6e8eb;font-size:12px}
   .sub>summary{cursor:pointer;color:#8b949e;font-size:12px;margin-top:12px;list-style:none}
   .sub>summary::-webkit-details-marker{display:none}
-  body.guest #alarmSec{display:none}
   .prelen{width:58px;padding:4px 5px;font-size:12px;background:#0b0d10;border:1px solid #2b3542;
     border-radius:6px;color:#e6e8eb}
   #clipList .roirow{margin-top:4px}
@@ -274,7 +281,7 @@
           <div id="isoBands"></div>
           <div class="bandrow"><button id="isoAdd" data-i18n="btn.add">Add</button></div>
         </div>
-        <details class="sub" open><summary data-i18n="panel.ref">Reference frame (&#916;T)</summary>
+        <details class="sub" open id="refBlock"><summary data-i18n="panel.ref">Reference frame (&#916;T)</summary>
           <div class="ctl">
             <button id="refSet" data-i18n="btn.setRef">Set reference</button>
             <button id="refClear" class="ghost" data-i18n="btn.clearRef">Clear</button>
@@ -305,7 +312,7 @@
           </div>
           <p class="hint" id="refNow"></p>
         </details>
-        <details class="sub"><summary data-i18n="panel.tcal">Two-point calibration</summary>
+        <details class="sub" id="tcalBlock"><summary data-i18n="panel.tcal">Two-point calibration</summary>
           <p class="hint" data-i18n="tcal.hint">Measure a reference of known temperature with a point or box, enter its true temperature, then repeat with a second reference well away from it. The readings become (raw × scale) + offset.</p>
           <div class="ctl">
             <select id="tcalRegion"></select>
@@ -740,9 +747,17 @@ async function whoami(){
     document.body.classList.toggle('guest', AUTH_ROLE==='guest');
     renderWho();
     if(AUTH_ROLE!=='admin'){
-      const tw=document.getElementById('thermalSec'), aw=document.getElementById('alignSec');
-      if(tw) tw.style.display='none';
-      if(aw) aw.style.display='none';
+      /* the owner grants capabilities per feature; hide what this guest was not given */
+      const P=j.perms||{};
+      const cls=(name,on)=>document.body.classList.toggle(name,!on);
+      cls('no-thermal', !(P.display||P.reference||P.calibration));
+      cls('no-display', !P.display);
+      cls('no-reference', !P.reference);
+      cls('no-calibration', !P.calibration);
+      cls('no-measure', !P.measure);
+      cls('no-snapshot', !P.snapshot);
+      cls('no-alarms', !P.alarms);
+      const aw=document.getElementById('alignSec'); if(aw) aw.style.display='none';
       const cog=document.getElementById('cog'); if(cog) cog.style.display='none';
       const clr=document.getElementById('chartclear'); if(clr) clr.style.display='none';
     }

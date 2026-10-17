@@ -28,6 +28,7 @@ STYLE = """
  .row label{flex:1 1 150px;margin:0}
  .row button{width:auto;flex:0 0 auto;margin:0}
  .who{color:#8b949e;font-size:13px;margin:0 0 20px}
+ .permlabel{display:block;margin:0 0 6px;color:#c8d1dc;font-size:13px}
 """
 
 
@@ -57,8 +58,27 @@ def setup(error: str = "") -> str:
 </form></div>""" % (STYLE, error)
 
 
+PERM_LABELS = (("measure", "Measure — draw points, boxes and polygons"),
+               ("snapshot", "Take snapshots"),
+               ("display", "Palette, bands and isotherm"),
+               ("reference", "Reference frame and ΔT view"),
+               ("calibration", "Two-point temperature calibration"),
+               ("alarms", "Alarm rules and clips"),
+               ("prerecord", "Clip window settings"))
+
+
+def _perm_rows(perms) -> str:
+    perms = perms or {}
+    rows = []
+    for key, label in PERM_LABELS:
+        checked = " checked" if perms.get(key) else ""
+        rows.append('<label class=permlabel><input type=checkbox name="p_%s"%s> %s</label>'
+                    % (key, checked, label))
+    return "".join(rows)
+
+
 def account(username: str, role: str, enabled: bool, guest_enabled: bool,
-            message: str = "", error: bool = False) -> str:
+            message: str = "", error: bool = False, perms: dict = None) -> str:
     login_state = "Sign-in is <b>required</b>." if enabled else "Sign-in is <b>off</b> — anyone who can reach this relay has full control."
     login_action = "Turn sign-in off" if enabled else "Require sign-in"
     login_next = "0" if enabled else "1"
@@ -91,6 +111,14 @@ def account(username: str, role: str, enabled: bool, guest_enabled: bool,
   <input type=hidden name=enabled value=%s>
   <button type=submit class=ghost>%s</button>
  </form></section>
+<section><h2>Guest permissions</h2>
+ <p class=sub style="margin:0 0 10px">What a guest may do. Camera settings, the update,
+ the account and notification credentials always stay with the admin.</p>
+ <form method=post action=/account style="display:block;background:none;border:0;padding:0;width:auto">
+  <input type=hidden name=action value=perms>
+  %s
+  <button type=submit style="width:auto;margin-top:6px">Save permissions</button>
+ </form></section>
 <section><h2>Guest (read only)</h2>
  <p class=sub style="margin:0 0 10px">%s</p>
  <form method=post action=/account class=row>
@@ -101,6 +129,6 @@ def account(username: str, role: str, enabled: bool, guest_enabled: bool,
  </form></section>
 </div>""" % (STYLE, username, role, "err" if error else "msg", message,
              username, login_state, login_next, login_action,
-             guest_state, guest_next,
+             _perm_rows(perms), guest_state, guest_next,
              "New guest password" if not guest_enabled else "New password (optional)",
              "required" if not guest_enabled else "", guest_action)

@@ -22,6 +22,14 @@ import secrets
 import time
 
 ITERATIONS = 200_000
+
+# What a guest may be granted. Camera, update, account and notifications are never
+# grantable: those are the owner's, not the technician's.
+GUEST_PERMS = ("measure", "snapshot", "display", "reference", "calibration",
+               "alarms", "prerecord")
+DEFAULT_GUEST_PERMS = {"measure": True, "snapshot": True, "display": True,
+                       "reference": True, "calibration": False,
+                       "alarms": False, "prerecord": False}
 SESSION_TTL = 30 * 24 * 3600
 
 
@@ -47,7 +55,8 @@ class Auth:
     def __init__(self, path: str):
         self.path = path
         self.cfg = {"enabled": True, "username": "admin", "password": "",
-                    "guest": {"enabled": False, "password": ""}}
+                    "guest": {"enabled": False, "password": ""},
+                    "guest_perms": dict(DEFAULT_GUEST_PERMS)}
         self.load()
 
     # ---------- persistence ----------
@@ -57,6 +66,10 @@ class Auth:
                 data = json.load(f)
             if isinstance(data.get("guest"), dict):
                 self.cfg["guest"].update(data["guest"])
+            if isinstance(data.get("guest_perms"), dict):
+                for k, v in data["guest_perms"].items():
+                    if k in GUEST_PERMS:
+                        self.cfg["guest_perms"][k] = bool(v)
             for key in ("enabled", "username", "password", "secret"):
                 if key in data:
                     self.cfg[key] = data[key]
@@ -89,6 +102,28 @@ class Auth:
         self.cfg["username"] = username
         self.cfg["password"] = hash_password(password)
         self.save()
+
+    def perms(self) -> dict:
+        out = dict(DEFAULT_GUEST_PERMS)
+        for k, v in (self.cfg.get("guest_perms") or {}).items():
+            if k in GUEST_PERMS:
+                out[k] = bool(v)
+        return out
+
+    def set_perms(self, values: dict) -> None:
+        out = self.perms()
+        for k in GUEST_PERMS:
+            if k in values:
+                out[k] = bool(values[k])
+        self.cfg["guest_perms"] = out
+        self.save()
+
+    def can(self, role: str, capability: str) -> bool:
+        if role == "admin":
+            return True
+        if role != "guest" or capability not in GUEST_PERMS:
+            return False
+        return bool(self.perms().get(capability))
 
     def set_guest(self, enabled: bool, password: str = None) -> None:
         guest = self.cfg.setdefault("guest", {"enabled": False, "password": ""})

@@ -301,6 +301,10 @@ async function loadLang(lang){
   sel.onchange=()=>{ try{ localStorage.setItem('supercam.lang',sel.value); }catch(e){} loadLang(sel.value); };
 })();
 
+/* small local-storage helper - declared up here because the band and fusion code
+   is loaded before the wipe block that used to define it */
+const stored=(k,d)=>{ try{ const v=localStorage.getItem(k); return v===null?d:v; }catch(e){ return d; } };
+
 /* keep the video layer on its own aspect, centred (makes calibration size-invariant) */
 function layout(){
   const r=stage.getBoundingClientRect();
@@ -647,7 +651,6 @@ document.addEventListener('selectstart',e=>{ if(drag) e.preventDefault(); });
 addEventListener('mousemove',move); addEventListener('touchmove',move);
 const endDrag=()=>{ if(drag){ drag=false; setSplit(+wr.value); } };
 addEventListener('mouseup',endDrag); addEventListener('touchend',endDrag);
-const stored=(k,d)=>{ try{ const v=localStorage.getItem(k); return v===null?d:v; }catch(e){ return d; } };
 
 /* calibration: the VIDEO moves, the thermal never does */
 const CAL={ts:1,tx:0,ty:0,fx:1,fy:1,rot:0};

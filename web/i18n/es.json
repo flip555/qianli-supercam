@@ -1,5 +1,8 @@
 {
   "app.title": "SuperCam — en directo",
+  "auth.account": "Cuenta",
+  "auth.signedInAs": "Sesión de {name}",
+  "auth.viewOnly": "solo lectura",
   "btn.add": "Añadir banda",
   "btn.apply": "Guardar en la cámara",
   "btn.auto": "Auto",
@@ -17,6 +20,7 @@
   "btn.saveAs": "Guardar como…",
   "btn.saveDefault": "Guardar como predeterminado",
   "btn.saved": "Guardado ✓",
+  "btn.signOut": "Salir",
   "btn.snapshot": "Captura",
   "cam.current": "actual",
   "cam.dns": "DNS",

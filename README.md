@@ -59,6 +59,8 @@ pip install -r requirements.txt
   IP, and backs off politely when the camera is missing.
 * **Translations** — English, Spanish, French, German and Portuguese, one JSON file per
   language (see below).
+* **Sign-in built in** — an admin account and an optional read-only guest, with a
+  setup page on first run and a documented recovery command.
 * **Looks after itself** — the relay runs under a supervisor with a stall watchdog,
   and can update itself from GitHub releases without leaving the browser.
 
@@ -130,6 +132,30 @@ temperature labels and readout), and the camera settings dialog.
 The header shows the running version — and turns into an update link when a newer
 release is available — followed by a badge saying whether this browser is decoding the
 feed itself (`codec`) or the relay is transcoding it (`mjpeg`).
+
+## Signing in
+
+The relay asks for a username and password by default. On a fresh install there is no
+password yet, so the first visit gets a **setup page** and nothing else is served — not
+the feed, not the camera settings — until an account exists.
+
+* **Account** (in the footer) changes the username or password, turns sign-in on or off,
+  and manages an optional **guest** account.
+* A guest may watch, change the view and take snapshots, but cannot change settings, the
+  camera, the calibration or the palette. That is enforced by the relay, not merely
+  hidden in the page — including the endpoints that take their writes as query strings.
+* Sessions are held in memory, so restarting the relay (an update does this) asks
+  everyone to sign in again. Passwords are stored as PBKDF2-SHA256 hashes.
+* Lost the password? On the host, from the deployment directory:
+
+  ```bash
+  python -m supercam.auth --status     # what is configured
+  python -m supercam.auth --reset      # reopen the setup page (sign-in stays on)
+  python -m supercam.auth --disable    # turn sign-in off entirely — only on a trusted LAN
+  ```
+
+`auth.json` (mode 0600) sits beside the other state files and is preserved across
+updates.
 
 ## Updating
 

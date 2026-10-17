@@ -1,5 +1,8 @@
 {
   "app.title": "SuperCam — en direct",
+  "auth.account": "Compte",
+  "auth.signedInAs": "Connecté en tant que {name}",
+  "auth.viewOnly": "lecture seule",
   "btn.add": "Ajouter bande",
   "btn.apply": "Enregistrer dans la caméra",
   "btn.auto": "Auto",
@@ -17,6 +20,7 @@
   "btn.saveAs": "Enregistrer sous…",
   "btn.saveDefault": "Définir par défaut",
   "btn.saved": "Enregistré ✓",
+  "btn.signOut": "Déconnexion",
   "btn.snapshot": "Capture",
   "cam.current": "actuel",
   "cam.dns": "DNS",

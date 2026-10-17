@@ -1,5 +1,8 @@
 {
   "app.title": "SuperCam — live",
+  "auth.account": "Konto",
+  "auth.signedInAs": "Angemeldet als {name}",
+  "auth.viewOnly": "nur Ansicht",
   "btn.add": "Band hinzufügen",
   "btn.apply": "In Kamera speichern",
   "btn.auto": "Auto",
@@ -17,6 +20,7 @@
   "btn.saveAs": "Speichern als…",
   "btn.saveDefault": "Als Standard speichern",
   "btn.saved": "Gespeichert ✓",
+  "btn.signOut": "Abmelden",
   "btn.snapshot": "Aufnahme",
   "cam.current": "aktuell",
   "cam.dns": "DNS",

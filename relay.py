@@ -5,7 +5,8 @@ Handshake reuses the reverse-engineered client; the read loop is the one that
 provably pulls the full stream (~1.2 MB/s). The browser decodes the visible
 H.264 itself (WebCodecs on /raw.h264); thermal is served as MJPEG.
 """
-import collections, http.server, io, os, queue, socket, socketserver, subprocess, sys, threading, time
+import collections, http.server, io, json, os, queue, socket, socketserver, subprocess, sys, threading, time
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from supercam.client import SuperCam, keepalive, load  # handshake + packet builders
@@ -13,6 +14,8 @@ from supercam import thermal as TH
 from supercam import settings as CFG
 from supercam import reboot as REBOOT
 from supercam import update as UPD
+from supercam.auth import Auth, check_password
+from supercam import authpages
 from supercam import __version__ as VERSION
 from PIL import Image
 
@@ -35,6 +38,8 @@ _palette = {"name": PALETTE}          # live palette - the GUI can change it
 
 
 TRANGE_PATH = os.path.join(os.path.dirname(CAL_PATH), "trange.json")
+AUTH = Auth(os.environ.get("SUPERCAM_AUTH_PATH")
+            or os.path.join(os.path.dirname(CAL_PATH), "auth.json"))
 _trange = {"clip_lo": None, "clip_hi": None,   # shown at all (None = no bound)
            "span_lo": None, "span_hi": None,   # palette span   (None = automatic)
            "iso": None}                         # isotherm band table (base/step/colours)
@@ -713,11 +718,207 @@ class H(http.server.BaseHTTPRequestHandler):
                     return
             time.sleep(0.02)
 
+    # ---------- authentication plumbing ----------
+    API_PATHS = ("/health", "/version", "/thermal.json", "/camera", "/reboot", "/update",
+                 "/calibration", "/palette", "/trange", "/isotherm", "/whoami")
+
+    def _is_api(self, p):
+        return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
+
+    # These endpoints take their writes as GET query strings (the GUI calls them
+    # that way), so "POST means write" is not enough to keep a guest read-only.
+    QUERY_WRITES = ("/palette", "/trange", "/isotherm", "/calibration")
+
+    def _is_write(self, p):
+        if self.command == "POST":
+            return True
+        if p in self.QUERY_WRITES:
+            return bool(urllib.parse.urlparse(self.path).query)
+        return False
+
+    def _cookie(self, name="supercam_session"):
+        for part in (self.headers.get("Cookie", "") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == name:
+                return v
+        return None
+
+    def _set_cookie(self, token):
+        secure = "; Secure" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else ""
+        self.send_header("Set-Cookie",
+                         "supercam_session=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d%s"
+                         % (token, 30 * 86400, secure))
+
+    def _clear_cookie(self):
+        self.send_header("Set-Cookie", "supercam_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+
+    def _page(self, html, status=200):
+        b = html.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def _json_out(self, status, obj):
+        b = json.dumps(obj).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def _redirect(self, to, token=None):
+        self.send_response(303)
+        if token:
+            self._set_cookie(token)
+        self.send_header("Location", to)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _body(self):
+        try:
+            n = int(self.headers.get("Content-Length", "0") or 0)
+            return self.rfile.read(n).decode("utf-8", "replace") if n else ""
+        except Exception:
+            return ""
+
+    def _form(self):
+        return {k: v[0] for k, v in urllib.parse.parse_qs(self._body()).items()}
+
+    def _route_public(self, p):
+        """Sign-in, first-run setup and sign-out: reachable without a session."""
+        if p == "/login":
+            if self.command == "POST":
+                f = self._form()
+                token = AUTH.login(f.get("username", ""), f.get("password", ""))
+                if token:
+                    self._redirect("/", token)
+                else:
+                    self._page(authpages.login("Username or password not recognised."))
+            elif AUTH.session(self._cookie()):
+                self._redirect("/")
+            else:
+                self._page(authpages.login())
+            return True
+        if p == "/setup":
+            if not AUTH.needs_setup():
+                self._redirect("/")
+            elif self.command == "POST":
+                f = self._form()
+                user = (f.get("username") or "admin").strip()
+                pw = f.get("password") or ""
+                if len(pw) < 8:
+                    self._page(authpages.setup("Use at least 8 characters."))
+                elif pw != f.get("confirm"):
+                    self._page(authpages.setup("The two passwords do not match."))
+                else:
+                    AUTH.set_credentials(user, pw)
+                    self._redirect("/", AUTH.login(user, pw))
+            else:
+                self._page(authpages.setup())
+            return True
+        if p == "/logout":
+            AUTH.logout(self._cookie())
+            self.send_response(303)
+            self._clear_cookie()
+            self.send_header("Location", "/login")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return True
+        return False
+
+    def _gate(self, p):
+        """Answer the request when it is not allowed; True means it was handled."""
+        if not AUTH.enabled():
+            self.role = "admin"
+            return False
+        if AUTH.needs_setup():
+            if p in ("/", "/index.html"):
+                self._page(authpages.setup())
+            else:
+                self._json_out(401, {"ok": False, "error": "setup required", "setup": True})
+            return True
+        sess = AUTH.session(self._cookie())
+        if not sess:
+            if self.command == "POST" or self._is_api(p):
+                self._json_out(401, {"ok": False, "error": "login required"})
+            else:
+                self._page(authpages.login())
+            return True
+        self.role = sess["role"]
+        if self._is_write(p) and self.role != "admin":
+            self._json_out(403, {"ok": False, "error": "read-only guest account"})
+            return True
+        return False
+
+    def _route_authed(self, p):
+        if p == "/whoami":
+            self._json_out(200, {"ok": True, "role": self.role,
+                                 "username": AUTH.cfg.get("username"),
+                                 "auth": AUTH.enabled()})
+            return True
+        if p == "/account":
+            if self.role != "admin":
+                self._json_out(403, {"ok": False, "error": "admin only"})
+                return True
+            msg, err = "", False
+            if self.command == "POST":
+                f = self._form()
+                action = f.get("action", "")
+                if action == "username":
+                    new = (f.get("username") or "").strip()[:40]
+                    if new:
+                        AUTH.cfg["username"] = new
+                        AUTH.save()
+                        msg = "Username changed."
+                    else:
+                        msg, err = "Username cannot be empty.", True
+                elif action == "password":
+                    if not check_password(f.get("current", ""), AUTH.cfg.get("password") or ""):
+                        msg, err = "Current password is not right.", True
+                    elif len(f.get("new") or "") < 8:
+                        msg, err = "Use at least 8 characters.", True
+                    elif f.get("new") != f.get("confirm"):
+                        msg, err = "The two passwords do not match.", True
+                    else:
+                        AUTH.set_credentials(AUTH.cfg.get("username"), f["new"])
+                        msg = "Password changed."
+                elif action == "login":
+                    AUTH.set_enabled(f.get("enabled") == "1")
+                    msg = "Sign-in is %s." % ("required" if AUTH.enabled() else "off")
+                elif action == "guest":
+                    on = f.get("enabled") == "1"
+                    pw = f.get("password") or ""
+                    if on and len(pw) < 8 and not (AUTH.cfg.get("guest") or {}).get("password"):
+                        msg, err = "Guest password needs at least 8 characters.", True
+                    else:
+                        AUTH.set_guest(on, pw or None)
+                        msg = "Guest account %s." % ("enabled" if on else "removed")
+            self._page(authpages.account(AUTH.cfg.get("username"), self.role,
+                                         AUTH.enabled(),
+                                         bool((AUTH.cfg.get("guest") or {}).get("enabled")),
+                                         msg, err))
+            return True
+        return False
+
     def do_POST(self):
         self.do_GET()
 
     def do_GET(self):
         p = self.path.split("?")[0]
+        self.role = "admin"
+        try:
+            if self._route_public(p):
+                return
+            if self._gate(p):
+                return
+            if self._route_authed(p):
+                return
+        except Exception as exc:
+            self._json_out(500, {"ok": False, "error": "auth: %r" % (exc,)})
+            return
         if p in ("/", "/index.html"):
             # which front door a browser came through decides whether it can use
             # WebCodecs at all (it needs a secure context), so log it

@@ -74,6 +74,11 @@
   .sec>summary::before{content:"\25be  ";color:#5c6673}
   .sec[open]>summary::before{content:"\25b4  "}
   .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+  body.guest #thermalSec,body.guest #alignSec{display:none}
+  body.guest #cog{display:none}
+  #who{color:#8b949e;font-size:12px;margin-right:12px}
+  #who a{color:#8b949e}
+  #who a:hover{color:#e6e8eb}
   #chart{width:100%;height:110px;display:block;background:#0d1117;border-radius:8px;margin-top:10px}
   .chartlegend{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;font:12px ui-monospace,Menlo,monospace}
   .chartlegend b{font-weight:600}
@@ -180,7 +185,7 @@
         <div class="ctl" id="fusewrap"><span class="lbl" data-i18n="label.fusion">Fusion</span>
           <input type="range" id="fuse" min="0" max="100" value="55"><output id="fuseOut">55%</output></div>
       </details>
-      <details class="sec" open>
+      <details class="sec" open id="thermalSec">
         <summary data-i18n="panel.thermal">Thermal</summary>
         <div class="ctl"><span class="lbl" data-i18n="label.palette">Palette</span>
           <select id="pal">
@@ -231,7 +236,7 @@
           <button id="chartclear" class="ghost" data-i18n="btn.clear">Clear</button>
         </div>
       </details>
-      <details class="sec">
+      <details class="sec" id="alignSec">
         <summary data-i18n="panel.align">Align</summary>
         <div class="ctl">
           <span class="pad">
@@ -267,6 +272,7 @@
     <a href="https://github.com/flip555/qianli-supercam" target="_blank" rel="noopener" data-i18n="footer.github">GitHub</a>
     <a href="https://github.com/flip555/qianli-supercam/releases" target="_blank" rel="noopener" data-i18n="footer.releases">releases</a>
     <span class="grow"></span>
+    <span id="who"></span>
     <label for="lang" data-i18n="footer.language">Language</label>
     <select id="lang"></select>
     <span id="footver"></span>
@@ -556,7 +562,7 @@ async function checkVersion(){
 async function checkUpdate(){
   try{
     const j=await (await fetch('/update',{cache:'no-store'})).json();
-    if(!j.ok || !j.available) return;
+    if(!j.ok || !j.available || AUTH_ROLE!=='admin') return;
     REL=j;
     verEl.textContent=t('update.link',{from:'v'+j.current,to:j.latest});
     verEl.title=(j.notes||'').slice(0,600);
@@ -578,6 +584,27 @@ async function doUpdate(){
     if(Date.now()-t0>150000){ clearInterval(t); verEl.textContent=t('update.failed'); verEl.title=t('update.failed.title'); }
   },3000);
 }
+let AUTH_ROLE='admin';
+async function whoami(){
+  try{
+    const j=await (await fetch('/whoami',{cache:'no-store'})).json();
+    AUTH_ROLE=j.role||'admin';
+    document.body.classList.toggle('guest', AUTH_ROLE==='guest');
+    const who=document.getElementById('who');
+    if(who){
+      who.innerHTML=t('auth.signedInAs',{name:j.username||'admin'})+
+        (AUTH_ROLE==='guest' ? ' <b>'+t('auth.viewOnly')+'</b>' : '')+
+        ' · <a href="/account">'+t('auth.account')+'</a> · <a href="/logout">'+t('btn.signOut')+'</a>';
+    }
+    if(AUTH_ROLE!=='admin'){
+      const tw=document.getElementById('thermalSec'), aw=document.getElementById('alignSec');
+      if(tw) tw.style.display='none';
+      if(aw) aw.style.display='none';
+      const cog=document.getElementById('cog'); if(cog) cog.style.display='none';
+    }
+  }catch(e){}
+}
+whoami();
 checkVersion();
 setTimeout(checkUpdate,4000);
 setInterval(checkVersion,60000);

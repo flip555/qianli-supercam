@@ -80,6 +80,9 @@
   #toast{position:fixed;right:18px;bottom:18px;max-width:380px;background:#3a1d1d;border:1px solid #7a2c2c;
     color:#ffd7d7;padding:10px 13px;border-radius:9px;font-size:13px;display:none;z-index:60;line-height:1.4}
   .stage:fullscreen{background:#000}
+  #reanaBadge{position:absolute;top:10px;left:112px;background:rgba(126,226,168,.92);color:#10221a;
+    font:600 11px system-ui,sans-serif;padding:3px 8px;border-radius:6px;display:none;z-index:8;
+    letter-spacing:.06em;pointer-events:none}
   #dtBadge{position:absolute;top:10px;left:84px;background:rgba(255,209,102,.92);color:#1b1b1b;
     font:600 11px system-ui,sans-serif;padding:3px 8px;border-radius:6px;display:none;z-index:8;
     letter-spacing:.06em;pointer-events:none}
@@ -205,6 +208,7 @@
         <div id="marks"></div>
         <div id="frozenBadge" data-i18n="label.frozen">FROZEN</div>
         <div id="dtBadge" data-i18n="label.dt">&#916;T</div>
+        <div id="reanaBadge" data-i18n="label.reana">RE-ANALYSIS</div>
         <div class="readout" id="readout">&mdash;</div>
       </div>
   <p class="note" data-i18n="note.text">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
@@ -375,6 +379,11 @@
         <div class="ctl">
           <button id="snap" data-i18n="btn.snapshot">Snapshot</button>
           <button id="cog" data-i18n="btn.camera" data-i18n-title="btn.camera.title">&#9881; Camera</button></div>
+        <div class="ctl" id="reanaBar" style="display:none">
+          <span class="hint" id="reanaNow" style="margin:0"></span>
+          <button id="reanaRefresh" data-i18n="btn.refresh">Refresh</button>
+          <button id="reanaOff" class="ghost" data-i18n="btn.backLive">Back to live</button>
+        </div>
         <div id="snapList"></div>
       </details>
     </aside>
@@ -805,6 +814,7 @@ document.getElementById('isoAdd').onclick=()=>{
 };
 const isoLoad=()=>fetch('/isotherm',{cache:'no-store'}).then(r=>r.json()).then(isoRender).catch(()=>{});
 function thermalControls(){
+  try{ if(typeof REANA!=='undefined' && REANA) reanaImage(); }catch(e){}
   const iso = (typeof palsel!=='undefined' && palsel.value==='isotherm');
   [['profileRow',iso],['coloursRow',!iso]].forEach(([id,show])=>{
     const el=document.getElementById(id); if(el) el.style.display = show ? '' : 'none';
@@ -1200,6 +1210,44 @@ addEventListener('keydown',ev=>{
   }
 });
 
+/* ---- re-analysis of a stored raw frame ---- */
+let REANA=null;
+function reanaImage(){
+  if(!REANA) return;
+  thimg.src='/reanalyze.jpg?name='+encodeURIComponent(REANA)+'&t='+Date.now();
+}
+function reanaStats(){
+  if(!REANA) return;
+  fetch('/reanalyze.json?name='+encodeURIComponent(REANA),{cache:'no-store'})
+    .then(r=>r.json()).then(j=>{
+      if(!j.ok) return;
+      const st=j.recorded||{};
+      const r=document.getElementById('readout');
+      if(r && st.max_c!=null)
+        r.innerHTML='RE-ANALYSIS '+j.name+'   '+st.max_c.toFixed(1)+'\u00b0C max   '+
+                    st.mean_c.toFixed(1)+'\u00b0C avg   '+st.min_c.toFixed(1)+'\u00b0C min';
+      roiList(j.regions||[]);
+    }).catch(()=>{});
+}
+function openReana(name){
+  REANA=name;
+  setDt(false);
+  reanaImage(); reanaStats();
+  const bar=document.getElementById('reanaBar'); if(bar) bar.style.display='';
+  const now=document.getElementById('reanaNow'); if(now) now.textContent=name;
+  const b=document.getElementById('reanaBadge'); if(b) b.style.display='block';
+  toast(t('label.reana')+' '+name);
+}
+function closeReana(){
+  REANA=null;
+  if(thimg) thimg.src=thermalSrc()+'?t='+Date.now();
+  const bar=document.getElementById('reanaBar'); if(bar) bar.style.display='none';
+  const b=document.getElementById('reanaBadge'); if(b) b.style.display='none';
+  roiLoad();
+}
+document.getElementById('reanaRefresh').onclick=()=>{ reanaImage(); reanaStats(); };
+document.getElementById('reanaOff').onclick=closeReana;
+
 /* ---- snapshot gallery ---- */
 function snapsRender(j){
   const box=document.getElementById('snapList'); if(!box || !j || !j.ok) return;
@@ -1211,8 +1259,12 @@ function snapsRender(j){
       'style="width:52px;height:39px;object-fit:cover;border-radius:4px;border:1px solid #2b3542"></a>'+
       '<span class="roiname">'+s.name+(s.raw?' \u00b7 raw':'')+'</span>'+
       '<span class="roival">'+Math.round((s.size||0)/1024)+' KB</span>'+
-      '<a class="btnlink" href="/snapshot.zip?name='+encodeURIComponent(s.name)+'">'+t('btn.download')+'</a></div>'
+      '<a class="btnlink" href="/snapshot.zip?name='+encodeURIComponent(s.name)+'">'+t('btn.download')+'</a>'+
+      '<button class="ghost opn" data-name="'+s.name+'">'+t('btn.open')+'</button></div>'
   ).join('') : '<p class=hint>'+t('snap.none')+'</p>';
+  box.querySelectorAll('.opn').forEach(b=>{
+    b.onclick=()=>openReana(b.dataset.name);
+  });
 }
 function snapsLoad(){ fetch('/snapshots',{cache:'no-store'}).then(r=>r.json()).then(snapsRender).catch(()=>{}); }
 snapsLoad();

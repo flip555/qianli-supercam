@@ -104,6 +104,22 @@ the thermal image showing the difference, B minus A. Run a known-good board, sav
 `good-10min`, run the suspect, save `bad-10min`, compare — the shared surroundings cancel
 out and the difference is the suspect's own heating.
 
+### Comparing two saved references
+
+**Save as…** keeps the current frame under a name, and as many as you like. Pick two in
+the compare row and press **Compare** to see ΔT between them (min / average / max), with
+the thermal image showing the difference, B minus A. Run a known-good board, save
+`good-10min`, run the suspect, save `bad-10min`, compare — the shared surroundings cancel
+out and the difference is that board's own heating.
+
+## Re-analysing a stored frame
+
+Press **Open** on a snapshot to return to that frame. It renders with that snapshot's own
+scale and offset but your current palette, bands and isotherm, and a green RE-ANALYSIS
+badge confirms it. The readout shows the statistics recorded at the time, your current
+regions are measured against the stored frame, and **Refresh** / **Back to live** control
+it — the picture was a view, the raw frame is the measurement.
+
 ## The chart
 
 An hour of **max / average / min**, kept by the relay at one sample a second, so every

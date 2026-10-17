@@ -138,6 +138,11 @@ def _ref_load_named(slug):
     return {"raw": raw, "vals": TH.values(raw), **meta}
 
 
+def _snap_paths(name):
+    base = os.path.join(SNAPSHOT_DIR, os.path.basename(name or ""))
+    return base + ".raw", base + ".json"
+
+
 def _ref_list():
     out = []
     try:
@@ -1069,7 +1074,8 @@ class H(http.server.BaseHTTPRequestHandler):
                  "/captures", "/captures.zip", "/prerecord", "/tcal",
                  "/history.csv", "/snapshots", "/snapshot.zip",
                  "/reference", "/dt.json", "/dt.mjpg",
-                 "/references", "/compare.json", "/dt.jpg")
+                 "/references", "/compare.json", "/dt.jpg",
+                 "/reanalyze.jpg", "/reanalyze.json")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
@@ -1309,6 +1315,72 @@ class H(http.server.BaseHTTPRequestHandler):
                 _log("raw.h264 client left: %.0fs, %d KB" % (time.time()-_t0, _nb//1024))
                 with _raw_lock:
                     _raw_subs.discard(q)
+        elif p == "/reanalyze.jpg":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            name = os.path.basename((q.get("name") or [""])[0])
+            rawp, metap = _snap_paths(name)
+            if not name or not os.path.exists(rawp):
+                self._json_out(404, {"ok": False, "error": "no stored frame for that snapshot"})
+                return
+            try:
+                with open(rawp, "rb") as f:
+                    raw = f.read()
+                with open(metap) as f:
+                    meta = json.load(f)
+                sc = float(meta.get("scale") or _tcal["scale"])
+                off = float(meta.get("offset") or _tcal["offset"])
+                pal = (q.get("palette") or [meta.get("palette") or _palette["name"]])[0]
+
+                def opt(key, default):
+                    try:
+                        if q.get(key) and q[key][0] != "":
+                            return float(q[key][0])
+                    except Exception:
+                        pass
+                    return default
+                clip_lo = opt("clip_lo", _trange["clip_lo"])
+                clip_hi = opt("clip_hi", _trange["clip_hi"])
+                span_lo = opt("span_lo", _trange["span_lo"])
+                span_hi = opt("span_hi", _trange["span_hi"])
+                iso = _trange.get("iso") if pal == "isotherm" else None
+                img, _st = TH.decode(raw, pal, sc, off, clip_lo, clip_hi, span_lo, span_hi, iso)
+                out = io.BytesIO()
+                img.save(out, format="JPEG", quality=85)
+            except Exception as exc:
+                self._json_out(500, {"ok": False, "error": str(exc)})
+                return
+            data = out.getvalue()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        elif p == "/reanalyze.json":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            name = os.path.basename((q.get("name") or [""])[0])
+            rawp, metap = _snap_paths(name)
+            if not name or not os.path.exists(rawp):
+                self._json_out(404, {"ok": False, "error": "no stored frame for that snapshot"})
+                return
+            try:
+                with open(rawp, "rb") as f:
+                    raw = f.read()
+                with open(metap) as f:
+                    meta = json.load(f)
+                vals = TH.values(raw)
+                sc = float(meta.get("scale") or _tcal["scale"])
+                off = float(meta.get("offset") or _tcal["offset"])
+                ref_id = next((r["id"] for r in _regions if r.get("ref")), None)
+                regions = REG.stats_for(vals, TH.W, TH.H, _regions, sc, off, ref_id) \
+                    if _regions else []
+            except Exception as exc:
+                self._json_out(500, {"ok": False, "error": str(exc)})
+                return
+            self._json_out(200, {"ok": True, "name": name, "at": meta.get("at"),
+                                 "recorded": meta.get("stats"), "regions": regions,
+                                 "scale": sc, "offset": off,
+                                 "palette": meta.get("palette")})
         elif p == "/references":
             if self.command == "POST":
                 f = self._form()

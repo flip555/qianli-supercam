@@ -107,28 +107,6 @@ def _peaks(vals, n: int = 3, min_sep: int = 14, margin: int = 3):
     return out
 
 
-def _denoise(vals) -> list:
-    """3x3 median with clamped edges, so isolated dead pixels cannot win the extremes.
-
-    These sensors have bad pixels - ours reads about 0.35 C at the border - and a
-    border-skipping filter left exactly those winning the min/max. A real hot
-    component spans more than one pixel, so a median keeps it and drops single-pixel
-    outliers. The rendered image itself is not filtered.
-    """
-    out = list(vals)
-    for y in range(H):
-        y0 = y * W
-        up = max(0, y - 1) * W
-        dn = min(H - 1, y + 1) * W
-        for x in range(W):
-            xm = max(0, x - 1)
-            xp = min(W - 1, x + 1)
-            out[y0 + x] = sorted((vals[up + xm], vals[up + x], vals[up + xp],
-                                  vals[y0 + xm], vals[y0 + x], vals[y0 + xp],
-                                  vals[dn + xm], vals[dn + x], vals[dn + xp]))[4]
-    return out
-
-
 def decode(frame: bytes, palette: str = "rainbow",
            scale: float = 0.01, offset: float = 0.0,
            clip_lo: float = None, clip_hi: float = None,
@@ -150,11 +128,10 @@ def decode(frame: bytes, palette: str = "rainbow",
     frame's own min..max.
     """
     vals = struct.unpack_from("<%dH" % N, frame, PAYLOAD_OFFSET)
-    svals = _denoise(vals)          # stats ignore dead pixels; the image does not
-    lo, hi = min(svals), max(svals)
+    lo, hi = min(vals), max(vals)
     raw = lambda c: None if c is None else int((c - offset) / scale)
     clo, chi = raw(clip_lo), raw(clip_hi)
-    shown = [v for v in svals if (clo is None or v >= clo) and (chi is None or v <= chi)]
+    shown = [v for v in vals if (clo is None or v >= clo) and (chi is None or v <= chi)]
     base = shown or vals
     slo = raw(span_lo); shi = raw(span_hi)
     if slo is None: slo = min(base)
@@ -182,9 +159,9 @@ def decode(frame: bytes, palette: str = "rainbow",
         if iso_bands:
             temp = v * scale + offset
             col = b"\xff\xff\xff"
-            for lo, hi, c in iso_bands:
-                if lo <= temp < hi:
-                    col = c
+            for b_lo, b_hi, b_col in iso_bands:
+                if b_lo <= temp < b_hi:
+                    col = b_col
                     break
             rgb[i * 3:i * 3 + 3] = col
             continue
@@ -192,9 +169,9 @@ def decode(frame: bytes, palette: str = "rainbow",
         b = 0 if b < 0 else 255 if b > 255 else b
         rgb[i * 3:i * 3 + 3] = lut[b * 3:b * 3 + 3]
     img = Image.frombytes("RGB", (W, H), bytes(rgb))
-    hot = max(range(N), key=lambda i: svals[i])
-    cold = min(range(N), key=lambda i: svals[i])
-    peaks = _peaks(svals)
+    hot = max(range(N), key=lambda i: vals[i])
+    cold = min(range(N), key=lambda i: vals[i])
+    peaks = _peaks(vals)
     stats = {
         "min_c": round(lo * scale + offset, 2),
         "max_c": round(hi * scale + offset, 2),

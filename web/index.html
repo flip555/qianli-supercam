@@ -39,6 +39,8 @@
   .stage.mode-video #thimg{display:none}
   .stage.mode-thermal #vid{visibility:hidden}
   .stage.mode-fusion #thimg{opacity:var(--fuse,0.55)}
+  .stage.mode-wipe #thimg{clip-path:inset(0 0 0 var(--split,50%));opacity:var(--fuse,1)}
+  .stage.mode-pip #thimg{opacity:var(--fuse,1)}
   .stage.mode-wipe #thimg{clip-path:inset(0 0 0 var(--split,50%))}
   .stage.mode-pip #thimg{inset:auto 14px 14px auto;width:var(--pipw,26%);height:auto;
     border:1px solid #3a4553;border-radius:8px;image-rendering:pixelated;box-shadow:0 6px 24px rgba(0,0,0,.5)}
@@ -62,7 +64,32 @@
     border:1px solid #2b3542;border-radius:8px;padding:7px 11px;font-size:13px;backdrop-filter:blur(3px)}
   .hot{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border:2px solid #fff;border-radius:50%;
     box-shadow:0 0 0 2px rgba(0,0,0,.6);display:none;pointer-events:none;z-index:2}
-  .bar{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .wrap{display:flex;gap:18px;align-items:flex-start;margin-top:12px}
+  .view{flex:1 1 auto;min-width:0}
+  .panel{flex:0 0 310px;display:flex;flex-direction:column;gap:10px}
+  @media (max-width:980px){ .wrap{flex-direction:column} .panel{flex:1 1 auto;width:100%} }
+  .sec{background:#12171e;border:1px solid #1e242c;border-radius:10px;padding:10px 12px}
+  .sec>summary{cursor:pointer;font-weight:600;font-size:13px;color:#c8d1dc;list-style:none;outline:none}
+  .sec>summary::-webkit-details-marker{display:none}
+  .sec>summary::before{content:"\25be  ";color:#5c6673}
+  .sec[open]>summary::before{content:"\25b4  "}
+  .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+  .lbl{color:#8b949e;font-size:12px;min-width:58px}
+  #bandwrap{margin-top:10px}
+  .bandrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  .bandrow input[type=number]{width:56px;padding:4px 5px;font-size:12px}
+  .bandrow input.bad{border-color:#e5484d}
+  .bandrow input::placeholder{color:#5c6673}
+  .dual{position:relative;height:26px;flex:1 1 110px;min-width:110px}
+  .dual .track{position:absolute;left:0;right:0;top:11px;height:5px;background:#242c37;border-radius:3px}
+  .dual .fill{position:absolute;top:11px;height:5px;background:#3f6fb5;border-radius:3px}
+  .dual input[type=range]{position:absolute;left:0;top:0;width:100%;height:26px;margin:0;background:none;
+    -webkit-appearance:none;appearance:none;pointer-events:none}
+  .dual input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;
+    width:13px;height:22px;border-radius:4px;background:#39434f;border:1px solid #6b7a8d;cursor:ew-resize}
+  .dual input[type=range]::-moz-range-thumb{pointer-events:auto;width:13px;height:22px;border-radius:4px;
+    background:#39434f;border:1px solid #6b7a8d;cursor:ew-resize}
+  #bandwrap input[type=number]{}
   a.btn,button,select{background:#161b22;border:1px solid #2b3542;color:#e6e8eb;border-radius:8px;
     padding:7px 12px;font:inherit;text-decoration:none;cursor:pointer}
   a.btn:hover,button:hover{border-color:#4a5768}
@@ -124,57 +151,98 @@
     <div class="readout" id="readout">&mdash;</div>
   </div>
 
-  <div class="bar">
-    <div class="seg" id="modes">
-      <button data-mode="pip" data-i18n="mode.pip">PiP</button>
-      <button data-mode="wipe" class="on" data-i18n="mode.wipe">Wipe</button>
-      <button data-mode="fusion" data-i18n="mode.fusion">Fusion</button>
-      <button data-mode="thermal" data-i18n="mode.thermal">Thermal</button>
-      <button data-mode="video" data-i18n="mode.video">Video</button>
-    </div>
-    <button id="size" data-i18n="pip.med">PiP: med</button>
-    <select id="pal">
-      <option value="rainbow" selected data-i18n="palette.rainbow">rainbow</option>
-      <option value="ironbow" data-i18n="palette.ironbow">ironbow</option>
-      <option value="whitehot" data-i18n="palette.whitehot">white hot</option>
-      <option value="blackhot" data-i18n="palette.blackhot">black hot</option>
-    </select>
-    <span id="bandwrap">
-      <label data-i18n="label.show">Show</label>
-      <input type="number" id="clipLo" step="0.5" placeholder="auto" title="hide everything below this">
-      <input type="number" id="clipHi" step="0.5" placeholder="auto" title="hide everything above this">
-      <button id="clipauto" data-i18n="btn.auto">Auto</button>
-      <label data-i18n="label.colours">Colours</label>
-      <input type="number" id="spanLo" step="0.5" placeholder="auto" title="bottom of the colour range">
-      <input type="number" id="spanHi" step="0.5" placeholder="auto" title="top of the colour range">
-      <button id="spanauto" data-i18n="btn.auto">Auto</button>
-    </span>
-    <span id="fusewrap"><label for="fuse" data-i18n="label.fusion">Fusion</label>
-      <input type="range" id="fuse" min="0" max="100" value="55"></span>
-    <span id="wipewrap"><label for="wipe" data-i18n="label.split">Split</label>
-      <input type="range" id="wipe" min="0" max="100" value="50"></span>
-    <span id="calwrap">
-      <label for="ts" data-i18n="label.videoScale">Video scale</label><input type="range" id="ts" min="0.5" max="4" step="0.01" value="1">
-      <label for="tx" data-i18n="label.x">X</label><input type="range" id="tx" min="-60" max="60" step="0.5" value="0">
-      <label for="ty" data-i18n="label.y">Y</label><input type="range" id="ty" min="-60" max="60" step="0.5" value="0">
-      <span class="pad">
-        <button id="nup" title="nudge up">&#9650;</button>
-        <button id="nleft" title="nudge left">&#9664;</button>
-        <button id="nright" title="nudge right">&#9654;</button>
-        <button id="ndown" title="nudge down">&#9660;</button>
-      </span>
-      <button id="rot90" data-i18n="btn.rotate">Rotate</button>
-      <button id="fliph" data-i18n="btn.fliph">Flip H</button>
-      <button id="flipv" data-i18n="btn.flipv">Flip V</button>
-      <button id="calreset" data-i18n="btn.resetSaved">Reset to saved</button>
-      <button id="calfactory" class="ghost" data-i18n="btn.centre">Centre</button>
-      <button id="calsave" data-i18n="btn.saveDefault">Save as default</button>
-    </span>
-    <button id="snap" data-i18n="btn.snapshot">Snapshot</button>
-    <button id="cog" data-i18n="btn.camera" data-i18n-title="btn.camera.title">&#9881; Camera</button>
-  </div>
+  <div class="wrap">
+    <div class="view">
+      <div class="stage mode-wipe" id="stage">
+        <div id="vwrap"><img id="vid" src="/video.mjpg" data-i18n-alt="img.visible" alt="visible stream" draggable="false">
+          <canvas id="vidcanvas"></canvas></div>
+        <img id="thimg" src="/stream.mjpg" data-i18n-alt="img.thermal" alt="thermal" draggable="false">
+        <div class="wipebar" id="wipebar"></div>
+        <div id="marks"></div>
+        <div class="readout" id="readout">&mdash;</div>
+      </div>
   <p class="note" data-i18n="note.text">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
   Wipe is the default view; the thermal never moves &mdash; calibration adjusts the video layer.</p>
+    </div>
+    <aside class="panel">
+      <details class="sec" open>
+        <summary data-i18n="panel.view">View</summary>
+        <div class="seg" id="modes">
+          <button data-mode="pip" data-i18n="mode.pip">PiP</button>
+          <button data-mode="wipe" class="on" data-i18n="mode.wipe">Wipe</button>
+          <button data-mode="fusion" data-i18n="mode.fusion">Fusion</button>
+          <button data-mode="thermal" data-i18n="mode.thermal">Thermal</button>
+          <button data-mode="video" data-i18n="mode.video">Video</button>
+        </div>
+        <div class="ctl"><span class="lbl" data-i18n="label.pip">PiP</span>
+          <button id="size" data-i18n="pip.med">PiP: med</button></div>
+        <div class="ctl" id="wipewrap"><span class="lbl" data-i18n="label.split">Split</span>
+          <input type="range" id="wipe" min="0" max="100" value="50"></div>
+        <div class="ctl" id="fusewrap"><span class="lbl" data-i18n="label.fusion">Fusion</span>
+          <input type="range" id="fuse" min="0" max="100" value="55"><output id="fuseOut">55%</output></div>
+      </details>
+      <details class="sec" open>
+        <summary data-i18n="panel.thermal">Thermal</summary>
+        <div class="ctl"><span class="lbl" data-i18n="label.palette">Palette</span>
+          <select id="pal">
+            <option value="rainbow" selected data-i18n="palette.rainbow">rainbow</option>
+            <option value="ironbow" data-i18n="palette.ironbow">ironbow</option>
+            <option value="whitehot" data-i18n="palette.whitehot">white hot</option>
+            <option value="blackhot" data-i18n="palette.blackhot">black hot</option>
+          </select></div>
+        <div id="bandwrap">
+          <div class="bandrow"><span class="lbl" data-i18n="label.show">Show</span>
+            <div class="dual" id="clipDual">
+              <div class="track"></div><div class="fill" id="clipFill"></div>
+              <input type="range" id="clipLoR" min="-10" max="150" step="0.5" value="-10">
+              <input type="range" id="clipHiR" min="-10" max="150" step="0.5" value="150">
+            </div>
+            <input type="number" id="clipLo" step="0.5" placeholder="auto">
+            <input type="number" id="clipHi" step="0.5" placeholder="auto">
+            <button id="clipauto" data-i18n="btn.auto">Auto</button></div>
+          <div class="bandrow"><span class="lbl" data-i18n="label.colours">Colours</span>
+            <div class="dual" id="spanDual">
+              <div class="track"></div><div class="fill" id="spanFill"></div>
+              <input type="range" id="spanLoR" min="-10" max="150" step="0.5" value="-10">
+              <input type="range" id="spanHiR" min="-10" max="150" step="0.5" value="150">
+            </div>
+            <input type="number" id="spanLo" step="0.5" placeholder="auto">
+            <input type="number" id="spanHi" step="0.5" placeholder="auto">
+            <button id="spanauto" data-i18n="btn.auto">Auto</button></div>
+        </div>
+      </details>
+      <details class="sec">
+        <summary data-i18n="panel.align">Align</summary>
+        <div class="ctl">
+          <span class="pad">
+            <button id="nup" title="nudge up">&#9650;</button>
+            <button id="nleft" title="nudge left">&#9664;</button>
+            <button id="nright" title="nudge right">&#9654;</button>
+            <button id="ndown" title="nudge down">&#9660;</button>
+          </span>
+          <button id="rot90" data-i18n="btn.rotate">Rotate</button>
+          <button id="fliph" data-i18n="btn.fliph">Flip H</button>
+          <button id="flipv" data-i18n="btn.flipv">Flip V</button>
+        </div>
+        <div class="ctl"><span class="lbl" data-i18n="label.videoScale">Video scale</span>
+          <input type="range" id="ts" min="0.5" max="4" step="0.01" value="1"></div>
+        <div class="ctl"><span class="lbl" data-i18n="label.x">X</span>
+          <input type="range" id="tx" min="-60" max="60" step="0.5" value="0">
+          <span class="lbl" data-i18n="label.y">Y</span>
+          <input type="range" id="ty" min="-60" max="60" step="0.5" value="0"></div>
+        <div class="ctl">
+          <button id="calreset" data-i18n="btn.resetSaved">Reset to saved</button>
+          <button id="calfactory" class="ghost" data-i18n="btn.centre">Centre</button>
+          <button id="calsave" data-i18n="btn.saveDefault">Save as default</button></div>
+      </details>
+      <details class="sec" open>
+        <summary data-i18n="panel.capture">Capture</summary>
+        <div class="ctl">
+          <button id="snap" data-i18n="btn.snapshot">Snapshot</button>
+          <button id="cog" data-i18n="btn.camera" data-i18n-title="btn.camera.title">&#9881; Camera</button></div>
+      </details>
+    </aside>
+  </div>
   <footer class="foot">
     <a href="https://github.com/flip555/qianli-supercam" target="_blank" rel="noopener" data-i18n="footer.github">GitHub</a>
     <a href="https://github.com/flip555/qianli-supercam/releases" target="_blank" rel="noopener" data-i18n="footer.releases">releases</a>
@@ -486,8 +554,9 @@ function setMode(m,save){
   /* hide what the current view cannot use */
   const thermal = (m!=='video');
   document.getElementById('pal').style.display   = thermal ? '' : 'none';
-  document.getElementById('bandwrap').style.display = thermal ? 'flex' : 'none';
-  document.getElementById('fusewrap').classList.toggle('on', m==='fusion');
+  document.getElementById('bandwrap').style.display = thermal ? '' : 'none';
+  /* fusion means 'thermal over video', which wipe and PiP use too */
+  document.getElementById('fusewrap').classList.toggle('on', m==='fusion'||m==='wipe'||m==='pip');
   document.getElementById('size').style.display  = (m==='pip') ? '' : 'none';
   layout(); renderMarks(lastStats);
   if(save){ try{ localStorage.setItem(MODE_KEY,m); }catch(e){} }
@@ -516,6 +585,33 @@ function applyBands(j){
   for(const k in bandEls) bandEls[k].value=(j[k]==null?'':j[k]);
   for(const k in bandEls) bandEls[k].classList.remove('bad');
 }
+function bandFill(loR,hiR,fillEl){
+  const a=+loR.value, b=+hiR.value, min=+loR.min, max=+loR.max, span=(max-min)||1;
+  fillEl.style.left=((a-min)/span*100)+'%';
+  fillEl.style.width=Math.max(0,((b-a)/span*100))+'%';
+}
+function bandSync(){
+  for(const [loId,hiId,fillId] of [['clipLo','clipHi','clipFill'],['spanLo','spanHi','spanFill']]){
+    const loEl=bandEls[loId], hiEl=bandEls[hiId];
+    const loR=document.getElementById(loId+'R'), hiR=document.getElementById(hiId+'R');
+    const ok = loEl.value!=='' && hiEl.value!=='' && !isNaN(parseFloat(loEl.value)) && !isNaN(parseFloat(hiEl.value));
+    loR.value = ok ? Math.min(+loEl.value, +hiR.max) : loR.min;
+    hiR.value = ok ? Math.min(+hiEl.value, +hiR.max) : hiR.max;
+    bandFill(loR,hiR,document.getElementById(fillId));
+  }
+}
+function bandSlider(loId,hiId){
+  const loR=document.getElementById(loId+'R'), hiR=document.getElementById(hiId+'R');
+  const push=(which)=>()=>{
+    let a=+loR.value, b=+hiR.value;
+    if(a>b){ if(which==='lo'){ b=a; } else { a=b; } loR.value=a; hiR.value=b; }
+    bandEls[loId].value=a; bandEls[hiId].value=b;
+    bandFill(loR,hiR,document.getElementById(loId==='clipLo'?'clipFill':'spanFill'));
+    sendBands([loId,hiId]);
+  };
+  loR.oninput=push('lo'); hiR.oninput=push('hi');
+  loR.onchange=push('lo'); hiR.onchange=push('hi');
+}
 function sendBands(keys){
   const q=[];
   for(const k of keys){
@@ -532,13 +628,16 @@ for(const k in bandEls){
 }
 document.getElementById('clipauto').onclick=()=>{ bandEls.clipLo.value=''; bandEls.clipHi.value=''; sendBands(['clipLo','clipHi']); };
 document.getElementById('spanauto').onclick=()=>{ bandEls.spanLo.value=''; bandEls.spanHi.value=''; sendBands(['spanLo','spanHi']); };
-fetch('/trange',{cache:'no-store'}).then(r=>r.json()).then(applyBands).catch(()=>{});
+fetch('/trange',{cache:'no-store'}).then(r=>r.json()).then(j=>{ applyBands(j); bandSync(); }).catch(()=>{});
+bandSlider('clipLo','clipHi'); bandSlider('spanLo','spanHi'); bandSync();
 
 /* fusion intensity */
 const fusewrap=document.getElementById('fusewrap'), fuseEl=document.getElementById('fuse');
 const FUSE_KEY='supercam.fuse';
+const fuseOut=document.getElementById('fuseOut');
 const setFuse=(v,save=true)=>{ stage.style.setProperty('--fuse',(v/100).toFixed(2));
-  fuseEl.value=v; if(save){ try{ localStorage.setItem(FUSE_KEY,v); }catch(e){} } };
+  fuseEl.value=v; if(fuseOut) fuseOut.textContent=v+'%';
+  if(save){ try{ localStorage.setItem(FUSE_KEY,v); }catch(e){} } };
 fuseEl.oninput=e=>setFuse(+e.target.value);
 setFuse(+stored(FUSE_KEY,55),false);
 

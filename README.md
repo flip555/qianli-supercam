@@ -39,8 +39,9 @@ in **[Getting Started](https://github.com/flip555/qianli-supercam/wiki/Getting-S
 * **Views and alignment** — Wipe, PiP, Fusion, Thermal, Video; nudge, rotate, flip and
   scale the visible feed onto the thermal
 * **Two-point thermal calibration** per camera
-* **Built in** — sign-in with an optional read-only guest, snapshots, five languages and
-  an in-page updater
+* **Built in** — sign-in with a guest role whose capabilities the admin grants per
+  feature (measure, snapshot, palette, reference, calibration, alarms, clips),
+  snapshots, five languages and an in-page updater
 
 ## Documentation
 

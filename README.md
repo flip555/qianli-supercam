@@ -66,14 +66,17 @@ pip install -r requirements.txt
 
 ## Documentation
 
-This README is the front door; the task-by-task guide is
-**[docs/USING.md](docs/USING.md)** — signing in, the view modes, bands and isotherms,
-measuring, the chart, alignment, alarms, notifications, clips, calibration, snapshots
-and the keyboard shortcuts.
+The full guide is in the **[wiki](https://github.com/flip555/qianli-supercam/wiki)**:
 
-It lives in the repository rather than the GitHub wiki so it is reviewed with the code
-and versioned with the release it describes; a wiki mirror is easy to add if you would
-rather read it there.
+| | | |
+|---|---|---|
+| [Getting started](https://github.com/flip555/qianli-supercam/wiki/Getting-Started) | [The interface](https://github.com/flip555/qianli-supercam/wiki/The-Interface) | [Temperature bands](https://github.com/flip555/qianli-supercam/wiki/Temperature-Bands) |
+| [Isotherm](https://github.com/flip555/qianli-supercam/wiki/Isotherm) | [Measuring](https://github.com/flip555/qianli-supercam/wiki/Measuring) | [The chart](https://github.com/flip555/qianli-supercam/wiki/The-Chart) |
+| [Alarms and notifications](https://github.com/flip555/qianli-supercam/wiki/Alarms) | [Calibration](https://github.com/flip555/qianli-supercam/wiki/Calibration) | [Signing in](https://github.com/flip555/qianli-supercam/wiki/Signing-In) |
+| [Updating](https://github.com/flip555/qianli-supercam/wiki/Updating) | [Troubleshooting](https://github.com/flip555/qianli-supercam/wiki/Troubleshooting) | |
+
+The same text is kept in the repository as **[docs/USING.md](docs/USING.md)**, so it can
+be read offline and reviewed in the same pull request as the code it describes.
 
 ## Configuration
 

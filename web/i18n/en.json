@@ -31,6 +31,7 @@
   "btn.open": "Open",
   "btn.point": "Point",
   "btn.poly": "Polygon",
+  "btn.reanalyse": "Re-analyse",
   "btn.reboot": "Reboot camera",
   "btn.refresh": "Refresh",
   "btn.resetSaved": "Reset to saved",

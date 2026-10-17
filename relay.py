@@ -1639,6 +1639,14 @@ class H(http.server.BaseHTTPRequestHandler):
                     with _lock:
                         raw = _state.get("traw")
                         now_stats = _state.get("stats")
+                    # the video layer on its own, so re-analysis has a still to show
+                    video = body.get("video") or ""
+                    if video.startswith("data:image/jpeg;base64,"):
+                        try:
+                            with open(base + "-video.jpg", "wb") as f:
+                                f.write(base64.b64decode(video.split(",", 1)[1]))
+                        except Exception:
+                            pass
                     if raw:
                         with open(base + ".raw", "wb") as f:
                             f.write(raw)
@@ -1668,7 +1676,8 @@ class H(http.server.BaseHTTPRequestHandler):
                     st = os.stat(base + ".jpg")
                     items.append({"name": name[:-4], "size": st.st_size,
                                   "at": round(st.st_mtime, 1),
-                                  "raw": os.path.exists(base + ".raw")})
+                                  "raw": os.path.exists(base + ".raw"),
+                                  "video": os.path.exists(base + "-video.jpg")})
                     if len(items) >= 60:
                         break
             except Exception:

@@ -102,6 +102,10 @@
     background:rgba(8,10,13,.62);border:1px solid #3a4553;color:#e6e8eb;font-size:16px;line-height:1;
     cursor:pointer;z-index:9;opacity:.75}
   #snapFloat:hover{opacity:1;background:rgba(31,111,235,.85)}
+  #liveFloat{position:absolute;top:54px;right:10px;display:none;padding:5px 11px;border-radius:999px;
+    background:rgba(8,10,13,.74);border:1px solid #3a4553;color:#e6e8eb;
+    font:600 11px system-ui,sans-serif;cursor:pointer;z-index:9}
+  #liveFloat:hover{background:rgba(31,111,235,.85)}
   #dtLegend{position:absolute;right:12px;bottom:12px;display:none;align-items:center;gap:6px;
     background:rgba(8,10,13,.72);padding:4px 8px;border-radius:6px;
     font:11px ui-monospace,Menlo,monospace;color:#c8d1dc;z-index:8;pointer-events:none}
@@ -242,6 +246,7 @@
         <div id="dtBadge" data-i18n="label.dt">&#916;T</div>
         <div id="reanaBadge" data-i18n="label.reana">RE-ANALYSIS</div>
         <button id="snapFloat" data-i18n-title="btn.snapshot">&#128247;</button>
+        <button id="liveFloat" data-i18n="btn.backLive">Back to live</button>
         <div id="dtLegend"><span id="dtLo">&#8722;5</span><div class="ramp"></div><span id="dtHi">+5</span></div>
         <div class="readout" id="readout">&mdash;</div>
       </div>
@@ -1325,18 +1330,35 @@ function openReana(name){
   REANA=name;
   setDt(false);
   reanaImage(); reanaStats();
+  /* the video layer becomes the stored still, not the live camera */
+  if(vid){
+    vid.style.display='block';
+    if(vcanvas) vcanvas.style.display='none';
+    vid.onerror=function(){
+      vid.onerror=null;
+      vid.src='/snapshots/'+encodeURIComponent(name)+'.jpg';   /* older snapshots */
+    };
+    vid.src='/snapshots/'+encodeURIComponent(name)+'-video.jpg?t='+Date.now();
+  }
   const bar=document.getElementById('reanaBar'); if(bar) bar.style.display='';
   const now=document.getElementById('reanaNow'); if(now) now.textContent=name;
   const b=document.getElementById('reanaBadge'); if(b) b.style.display='block';
+  dtPaint();
   toast(t('label.reana')+' '+name);
 }
 function closeReana(){
   REANA=null;
   if(thimg) thimg.src=thermalSrc()+'?t='+Date.now();
+  if(vid){ vid.onerror=null; vid.style.display='block'; vid.src='/video.mjpg?t='+Date.now(); }
+  if(vcanvas) vcanvas.style.display='none';
+  if('VideoDecoder' in window){ vcFallback=true; try{ scheduleRetry(); }catch(e){} }
   const bar=document.getElementById('reanaBar'); if(bar) bar.style.display='none';
   const b=document.getElementById('reanaBadge'); if(b) b.style.display='none';
+  dtPaint();
   roiLoad();
 }
+const liveFloat=document.getElementById('liveFloat');
+if(liveFloat) liveFloat.onclick=()=>{ if(REANA) closeReana(); else setDt(false); };
 document.getElementById('reanaRefresh').onclick=()=>{ reanaImage(); reanaStats(); };
 document.getElementById('reanaOff').onclick=closeReana;
 
@@ -1352,7 +1374,7 @@ function snapsRender(j){
       '<span class="roiname">'+s.name+(s.raw?' \u00b7 raw':'')+'</span>'+
       '<span class="roival">'+Math.round((s.size||0)/1024)+' KB</span>'+
       '<a class="btnlink" href="/snapshot.zip?name='+encodeURIComponent(s.name)+'">'+t('btn.download')+'</a>'+
-      '<button class="ghost opn" data-name="'+s.name+'">'+t('btn.open')+'</button>'+
+      '<button class="ghost opn" data-name="'+s.name+'">'+t('btn.reanalyse')+'</button>'+
       '<button class="ghost del" data-name="'+s.name+'" title="'+t('btn.delete')+'">\u00d7</button></div>'
   ).join('') : '<p class=hint>'+t('snap.none')+'</p>';
   box.querySelectorAll('.opn').forEach(b=>{
@@ -1379,6 +1401,8 @@ function dtPaint(){
   const b=document.getElementById('dtView'); if(b) b.style.background = DT_ON ? '#1f6feb' : '';
   const badge=document.getElementById('dtBadge'); if(badge) badge.style.display = DT_ON ? 'block' : 'none';
   const legend=document.getElementById('dtLegend'); if(legend) legend.style.display = DT_ON ? 'flex' : 'none';
+  const live=document.getElementById('liveFloat');
+  if(live) live.style.display = (DT_ON || (typeof REANA!=='undefined' && REANA)) ? 'block' : 'none';
   const lo=document.getElementById('dtLo'), hi=document.getElementById('dtHi');
   if(lo) lo.textContent='\u2212'+DT_SPAN;
   if(hi) hi.textContent='+'+DT_SPAN;
@@ -1842,6 +1866,18 @@ function takeSnapshot(){
     g.save(); g.translate(W/2+tx,H/2+ty); g.rotate(rot); g.scale(ts*fx,ts*fy);
     g.drawImage(src,-W/2,-H/2,W,H); g.restore();
   }
+  /* the video layer alone, so re-analysis can show a still instead of the live feed */
+  const vc2=document.createElement('canvas'); vc2.width=W; vc2.height=H;
+  const g2=vc2.getContext('2d');
+  g2.fillStyle='#000'; g2.fillRect(0,0,W,H);
+  if(mode!=='thermal' && src){
+    const ts=num('--ts',1), tx=num('--tx',0)/100*W, ty=num('--ty',0)/100*H;
+    const fx=num('--fx',1), fy=num('--fy',1), rot=(num('--rot',0))*Math.PI/180;
+    g2.save(); g2.translate(W/2+tx,H/2+ty); g2.rotate(rot); g2.scale(ts*fx,ts*fy);
+    g2.drawImage(src,-W/2,-H/2,W,H); g2.restore();
+  }
+  const videoUrl=vc2.toDataURL('image/jpeg',0.9);
+
   /* thermal layer, mirroring each mode's CSS */
   const tw=thimg.naturalWidth||160, th=thimg.naturalHeight||120;
   let cover=null;
@@ -1906,7 +1942,7 @@ function takeSnapshot(){
   const a=document.createElement('a');
   a.download='supercam-'+mode+'.jpg'; a.href=url; a.click();
   fetch('/snapshots',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({image:url})})
+    body:JSON.stringify({image:url, video:videoUrl})})
     .then(r=>r.json()).then(j=>{ if(j.ok){ toast(t('snap.saved')+' '+j.name); snapsLoad(); } })
     .catch(()=>{});
 }

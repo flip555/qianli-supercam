@@ -270,6 +270,19 @@
             <button id="refClear" class="ghost" data-i18n="btn.clearRef">Clear</button>
             <button id="dtView" class="ghost" data-i18n="btn.dtView">&#916;T view</button>
           </div>
+          <div class="ctl">
+            <input type="text" id="refName" placeholder="name" style="width:96px">
+            <button id="refSaveNamed" data-i18n="btn.saveRef">Save as&#8230;</button>
+          </div>
+          <div class="ctl">
+            <select id="refList"></select>
+            <button id="refUse" class="ghost" data-i18n="btn.useRef">Use</button>
+            <button id="refDel" class="ghost" title="delete">&#215;</button>
+          </div>
+          <div class="ctl">
+            <select id="cmpA"></select><span class="tilde">&#8594;</span><select id="cmpB"></select>
+            <button id="refCompare" data-i18n="btn.compare">Compare</button>
+          </div>
           <p class="hint" id="refNow"></p>
         </details>
         <details class="sub"><summary data-i18n="panel.tcal">Two-point calibration</summary>
@@ -1213,6 +1226,7 @@ function dtPaint(){
 }
 function setDt(on){
   DT_ON=!!on;
+  CMP_ON=false;
   if(thimg) thimg.src=thermalSrc()+'?t='+Date.now();
   dtPaint();
 }
@@ -1250,6 +1264,60 @@ document.getElementById('dtView').onclick=()=>{
   if(!REF.present){ toast(t('ref.none')); return; }
   setDt(!DT_ON);
 };
+let REFS=[], CMP_ON=false;
+function refsRender(j){
+  const items=(j && j.items) || [];
+  REFS=items;
+  const opts=items.map(n=>'<option value="'+n.name+'">'+n.name+'</option>').join('');
+  ['refList','cmpA','cmpB'].forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    const cur=el.value;
+    el.innerHTML=opts;
+    if(cur && items.some(n=>n.name===cur)) el.value=cur;
+  });
+  const a=document.getElementById('cmpA'), b=document.getElementById('cmpB');
+  if(a && !a.value && items[0]) a.value=items[0].name;
+  if(b && !b.value && items[1]) b.value=items[1].name;
+}
+function refsLoad(){ fetch('/references',{cache:'no-store'}).then(r=>r.json()).then(refsRender).catch(()=>{}); }
+function refForm(action, name){
+  const fd=new FormData(); fd.append('action',action); fd.append('name',name||'');
+  return fetch('/references',{method:'POST',body:fd}).then(r=>r.json());
+}
+document.getElementById('refSaveNamed').onclick=()=>{
+  const n=(document.getElementById('refName').value||'').trim();
+  if(!n){ toast(t('ref.pickTwo')); return; }
+  refForm('save',n).then(j=>{
+    if(j.ok){ toast(t('ref.saved')+' '+n); document.getElementById('refName').value=''; refLoad(); refsLoad(); }
+    else toast(j.error||'');
+  }).catch(()=>{});
+};
+document.getElementById('refUse').onclick=()=>{
+  const el=document.getElementById('refList'); if(!el || !el.value) return;
+  refForm('select',el.value).then(j=>{ if(j.ok){ toast(t('ref.active')+' '+el.value); refLoad(); refsLoad(); } }).catch(()=>{});
+};
+document.getElementById('refDel').onclick=()=>{
+  const el=document.getElementById('refList'); if(!el || !el.value) return;
+  refForm('delete',el.value).then(()=>{ refsLoad(); refLoad(); }).catch(()=>{});
+};
+document.getElementById('refCompare').onclick=()=>{
+  const a=document.getElementById('cmpA'), b=document.getElementById('cmpB');
+  const btn=document.getElementById('refCompare');
+  if(CMP_ON){ CMP_ON=false; if(btn) btn.style.background=''; thimg.src=thermalSrc()+'?t='+Date.now(); return; }
+  if(!a || !b || !a.value || !b.value || a.value===b.value){ toast(t('ref.pickTwo')); return; }
+  const q='?a='+encodeURIComponent(a.value)+'&b='+encodeURIComponent(b.value);
+  fetch('/compare.json'+q,{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    if(!j.ok){ toast(j.error||''); return; }
+    CMP_ON=true;
+    if(btn) btn.style.background='#1f6feb';
+    const st=j.stats, f=v=>(v>=0?'+':'')+v.toFixed(1);
+    const r=document.getElementById('readout');
+    if(r) r.innerHTML='\u0394T '+j.a+' \u2192 '+j.b+'   max '+f(st.dt_max_c)+'\u00b0C   avg '+f(st.dt_avg_c)+'\u00b0C   min '+f(st.dt_min_c)+'\u00b0C';
+    thimg.src='/dt.jpg'+q+'&t='+Date.now();
+  }).catch(()=>{});
+};
+refsLoad();
+setInterval(refsLoad, 15000);
 refLoad();
 setInterval(refLoad, 10000);
 setInterval(dtLoad, 1000);

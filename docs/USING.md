@@ -98,6 +98,12 @@ The reference (`reference.raw` / `reference.json`) survives restarts; **Clear** 
 it, and snapshots record which reference was in use. The reference is a single frame and
 the span is fixed at ±10 °C.
 
+**Save as…** keeps the current frame under a name, and as many as you like. Pick two in
+the compare row and press **Compare** to see ΔT between them (min / average / max) with
+the thermal image showing the difference, B minus A. Run a known-good board, save
+`good-10min`, run the suspect, save `bad-10min`, compare — the shared surroundings cancel
+out and the difference is the suspect's own heating.
+
 ## The chart
 
 An hour of **max / average / min**, kept by the relay at one sample a second, so every

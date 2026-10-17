@@ -47,6 +47,7 @@ AUTH = Auth(os.environ.get("SUPERCAM_AUTH_PATH")
 TCAL_PATH = os.path.join(os.path.dirname(CAL_PATH), "thermal_cal.json")
 REFERENCE_RAW = os.path.join(os.path.dirname(CAL_PATH), "reference.raw")
 REFERENCE_JSON = os.path.join(os.path.dirname(CAL_PATH), "reference.json")
+REFERENCES_DIR = os.path.join(os.path.dirname(CAL_PATH), "references")
 _ref = None          # {"raw", "vals", "at", "stats", "scale", "offset"}
 _tcal = {"scale": SCALE, "offset": OFFSET}      # factory values unless calibrated
 
@@ -102,6 +103,56 @@ def _load_reference():
 
 
 _load_reference()
+
+
+def _slug(name):
+    return "".join(c for c in (name or "").strip().lower() if c.isalnum() or c in "-_")[:24]
+
+
+def _ref_meta(name, raw, stats):
+    return {"name": name, "at": round(time.time(), 1), "stats": stats,
+            "scale": _tcal["scale"], "offset": _tcal["offset"]}
+
+
+def _ref_save_named(name, raw, stats):
+    slug = _slug(name)
+    if not slug:
+        raise ValueError("give the reference a name")
+    os.makedirs(REFERENCES_DIR, exist_ok=True)
+    meta = _ref_meta(slug, raw, stats)
+    with open(os.path.join(REFERENCES_DIR, slug + ".raw"), "wb") as f:
+        f.write(raw)
+    with open(os.path.join(REFERENCES_DIR, slug + ".json"), "w") as f:
+        json.dump(meta, f, indent=2, default=str)
+    return slug, meta
+
+
+def _ref_load_named(slug):
+    slug = _slug(slug)
+    if not slug:
+        raise ValueError("no reference named")
+    with open(os.path.join(REFERENCES_DIR, slug + ".raw"), "rb") as f:
+        raw = f.read()
+    with open(os.path.join(REFERENCES_DIR, slug + ".json")) as f:
+        meta = json.load(f)
+    return {"raw": raw, "vals": TH.values(raw), **meta}
+
+
+def _ref_list():
+    out = []
+    try:
+        for n in sorted(os.listdir(REFERENCES_DIR)):
+            if not n.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(REFERENCES_DIR, n)) as f:
+                    meta = json.load(f)
+            except Exception:
+                continue
+            out.append({"name": n[:-5], "at": meta.get("at"), "stats": meta.get("stats")})
+    except Exception:
+        pass
+    return out
 
 _hist = collections.deque(maxlen=3600)   # (ts, min, max, mean) at ~1 Hz, shared by viewers
 _hist_last = 0.0
@@ -1017,7 +1068,8 @@ class H(http.server.BaseHTTPRequestHandler):
                  "/whoami", "/regions", "/regions.csv", "/alarms", "/notify",
                  "/captures", "/captures.zip", "/prerecord", "/tcal",
                  "/history.csv", "/snapshots", "/snapshot.zip",
-                 "/reference", "/dt.json", "/dt.mjpg")
+                 "/reference", "/dt.json", "/dt.mjpg",
+                 "/references", "/compare.json", "/dt.jpg")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
@@ -1257,8 +1309,88 @@ class H(http.server.BaseHTTPRequestHandler):
                 _log("raw.h264 client left: %.0fs, %d KB" % (time.time()-_t0, _nb//1024))
                 with _raw_lock:
                     _raw_subs.discard(q)
+        elif p == "/references":
+            if self.command == "POST":
+                f = self._form()
+                action = f.get("action", "save")
+                slug = _slug(f.get("name"))
+                if action == "save":
+                    with _lock:
+                        raw = _state.get("traw")
+                        st = _state.get("stats")
+                    if not raw:
+                        self._json_out(409, {"ok": False, "error": "no thermal frame yet"})
+                        return
+                    try:
+                        slug, meta = _ref_save_named(slug, raw, st)
+                    except Exception as exc:
+                        self._json_out(400, {"ok": False, "error": str(exc)})
+                        return
+                    # a saved reference also becomes the active one
+                    with open(REFERENCE_RAW, "wb") as fh:
+                        fh.write(raw)
+                    with open(REFERENCE_JSON, "w") as fh:
+                        json.dump(meta, fh, indent=2, default=str)
+                    _ref = {"raw": raw, "vals": TH.values(raw), **meta}
+                    print("reference saved: %s" % slug, flush=True)
+                elif action == "select":
+                    try:
+                        _ref = _ref_load_named(slug)
+                    except Exception:
+                        self._json_out(404, {"ok": False, "error": "no such reference"})
+                        return
+                    with open(REFERENCE_RAW, "wb") as fh:
+                        fh.write(_ref["raw"])
+                    with open(REFERENCE_JSON, "w") as fh:
+                        json.dump(_ref_meta(slug, _ref["raw"], _ref.get("stats")), fh,
+                                  indent=2, default=str)
+                    print("reference active: %s" % slug, flush=True)
+                elif action == "delete":
+                    for ext in (".raw", ".json"):
+                        try:
+                            os.remove(os.path.join(REFERENCES_DIR, slug + ext))
+                        except Exception:
+                            pass
+                    if (_ref or {}).get("name") == slug:
+                        _ref = None
+                        with _lock:
+                            _state["dtstats"] = None
+            self._json_out(200, {"ok": True, "active": (_ref or {}).get("name"),
+                                 "items": _ref_list()})
+        elif p == "/compare.json":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            a, b = _slug((q.get("a") or [""])[0]), _slug((q.get("b") or [""])[0])
+            try:
+                ra, rb = _ref_load_named(a), _ref_load_named(b)
+            except Exception:
+                self._json_out(404, {"ok": False, "error": "name two saved references"})
+                return
+            n = min(len(ra["vals"]), len(rb["vals"]))
+            deltas = [rb["vals"][i] - ra["vals"][i] for i in range(n)]
+            sc = _tcal["scale"]
+            self._json_out(200, {"ok": True, "a": a, "b": b, "samples": n,
+                                 "stats": {"dt_min_c": round(min(deltas) * sc, 2),
+                                           "dt_max_c": round(max(deltas) * sc, 2),
+                                           "dt_avg_c": round(sum(deltas) / n * sc, 2)}})
+        elif p == "/dt.jpg":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            a, b = _slug((q.get("a") or [""])[0]), _slug((q.get("b") or [""])[0])
+            try:
+                ra, rb = _ref_load_named(a), _ref_load_named(b)
+            except Exception:
+                self._json_out(404, {"ok": False, "error": "name two saved references"})
+                return
+            img, _ = TH.render_dt(rb["vals"], ra["vals"], _tcal["scale"])
+            out = io.BytesIO()
+            img.save(out, format="JPEG", quality=85)
+            data = out.getvalue()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         elif p == "/reference":
-            global _ref
             if self.command == "POST":
                 if self._form().get("clear"):
                     _ref = None

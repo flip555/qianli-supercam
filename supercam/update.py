@@ -20,7 +20,7 @@ API_LATEST = "https://api.github.com/repos/%s/releases/latest" % REPO
 UA = {"User-Agent": "supercam-relay"}
 
 # deployment-owned state: never overwrite these with release content
-KEEP = {"reference.json", "reference.raw", "snapshots", "thermal_cal.json", "captures", "prerecord.json", "alarms.log", "notifications.json", "alarms.json", "regions.csv", "regions.json", "isotherm.json", "trange.json", "auth.json", "calibration.json", "palette.txt", "svc.sh", "svc.pid", "relay.pid",
+KEEP = {"references", "reference.json", "reference.raw", "snapshots", "thermal_cal.json", "captures", "prerecord.json", "alarms.log", "notifications.json", "alarms.json", "regions.csv", "regions.json", "isotherm.json", "trange.json", "auth.json", "calibration.json", "palette.txt", "svc.sh", "svc.pid", "relay.pid",
         "__pycache__"}
 
 

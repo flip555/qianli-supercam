@@ -11,6 +11,7 @@ Pixel payload: **38400 bytes** (160 x 120, uint16 little-endian) starting at
 """
 from __future__ import annotations
 
+import math
 import struct
 
 from PIL import Image
@@ -110,7 +111,7 @@ def decode(frame: bytes, palette: str = "rainbow",
            scale: float = 0.01, offset: float = 0.0,
            clip_lo: float = None, clip_hi: float = None,
            span_lo: float = None, span_hi: float = None,
-           steps: int = 8) -> tuple[Image.Image, dict]:
+           iso: dict = None) -> tuple[Image.Image, dict]:
     """Decode one thermal frame.
 
     Two independent bands, which is how the vendor software works:
@@ -138,12 +139,26 @@ def decode(frame: bytes, palette: str = "rainbow",
     if shi <= slo: shi = slo + 1
     span = shi - slo
     lut = LUTS.get(palette, LUTS["rainbow"])
-    if palette == "isotherm":
-        lut = _banded(LUTS["rainbow"], steps)
+    iso_cols, iso_base, iso_step = None, 20.0, 5.0
+    if palette == "isotherm" and iso and iso.get("colours"):
+        try:
+            iso_base = float(iso.get("base", 20.0))
+            iso_step = float(iso.get("step", 5.0)) or 1.0
+            iso_cols = [bytes(int(c[i:i + 2], 16) for i in (1, 3, 5))
+                        for c in iso["colours"]
+                        if isinstance(c, str) and len(c) == 7 and c[0] == "#"]
+            if not iso_cols:
+                iso_cols = None
+        except Exception:
+            iso_cols = None
     rgb = bytearray(N * 3)
     for i, v in enumerate(vals):
         if (clo is not None and v < clo) or (chi is not None and v > chi):
             rgb[i * 3:i * 3 + 3] = b"\xff\xff\xff"
+            continue
+        if iso_cols:
+            band = int(math.floor((v * scale + offset - iso_base) / iso_step))
+            rgb[i * 3:i * 3 + 3] = iso_cols[band] if 0 <= band < len(iso_cols) else b"\xff\xff\xff"
             continue
         b = (v - slo) * 255 // span
         b = 0 if b < 0 else 255 if b > 255 else b

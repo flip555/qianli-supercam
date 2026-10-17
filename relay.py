@@ -37,12 +37,14 @@ _palette = {"name": PALETTE}          # live palette - the GUI can change it
 TRANGE_PATH = os.path.join(os.path.dirname(CAL_PATH), "trange.json")
 _trange = {"clip_lo": None, "clip_hi": None,   # shown at all (None = no bound)
            "span_lo": None, "span_hi": None,   # palette span   (None = automatic)
-           "steps": 8}                          # isotherm bands
+           "iso": None}                         # isotherm band table (base/step/colours)
 
 ISO_PATH = os.path.join(os.path.dirname(CAL_PATH), "isotherm.json")
-ISO_BUILTIN = {"fine 16": {"steps": 16, "span_lo": None, "span_hi": None},
-               "pcba 8":   {"steps": 8,  "span_lo": None, "span_hi": None},
-               "coarse 4": {"steps": 4,  "span_lo": None, "span_hi": None}}
+ISO_COLOURS = ["#2657ff", "#1b9cff", "#00d4ff", "#22e0a1",
+               "#ffe14d", "#ff9f1a", "#ff4d4d", "#ff00d4"]
+ISO_BUILTIN = {"pcba 5C":   {"base": 20.0, "step": 5.0, "colours": ISO_COLOURS},
+               "fine 2.5C": {"base": 20.0, "step": 2.5, "colours": ISO_COLOURS},
+               "coarse 10C": {"base": 20.0, "step": 10.0, "colours": ISO_COLOURS[:4]}}
 _iso = {"current": "pcba 8", "profiles": dict(ISO_BUILTIN)}
 
 
@@ -72,9 +74,9 @@ def _apply_iso(name):
     p = _iso["profiles"].get(name)
     if not p:
         return False
-    _trange["steps"] = int(p.get("steps") or 8)
-    _trange["span_lo"] = p.get("span_lo")
-    _trange["span_hi"] = p.get("span_hi")
+    _trange["iso"] = {"base": p.get("base", 20.0),
+                      "step": p.get("step", 5.0),
+                      "colours": list(p.get("colours") or ISO_COLOURS)}
     _iso["current"] = name
     _save_iso()
     return True
@@ -335,7 +337,7 @@ def _thermal_worker(client, sock, data):
         img, stats = TH.decode(frames[-1], _palette["name"], SCALE, OFFSET,
                                _trange["clip_lo"], _trange["clip_hi"],
                                _trange["span_lo"], _trange["span_hi"],
-                               _trange["steps"])
+                               _trange["iso"])
         out = io.BytesIO(); img.save(out, format="JPEG", quality=80)
         jpeg = out.getvalue()
     except Exception:
@@ -938,11 +940,18 @@ class H(http.server.BaseHTTPRequestHandler):
                 # not silently clear the others (that made a half-filled pair look
                 # like it kept resetting itself to automatic).
                 supplied = {k: q[k][0] for k in ("clip_lo", "clip_hi", "span_lo", "span_hi") if k in q}
-                if "steps" in q:
-                    try:
-                        _trange["steps"] = max(2, min(16, int(float(q["steps"][0]))))
-                    except Exception:
-                        pass
+                iso = dict(_trange["iso"] or {"base": 20.0, "step": 5.0, "colours": ISO_COLOURS})
+                if "base" in q:
+                    try: iso["base"] = float(q["base"][0])
+                    except Exception: pass
+                if "step" in q:
+                    try: iso["step"] = max(0.5, float(q["step"][0]))
+                    except Exception: pass
+                if "colours" in q:
+                    cs = [c.strip() for c in q["colours"][0].split(",") if c.strip()]
+                    cs = [c for c in cs if len(c) == 7 and c.startswith("#")]
+                    if cs: iso["colours"] = cs[:16]
+                _trange["iso"] = iso
                 for alias, key in (("min", "span_lo"), ("max", "span_hi")):
                     if alias in q and key not in supplied:
                         supplied[key] = q[alias][0]
@@ -976,9 +985,7 @@ class H(http.server.BaseHTTPRequestHandler):
             elif "save" in q:
                 name = (q["save"][0] or "").strip()[:40]
                 if name:
-                    _iso["profiles"][name] = {"steps": _trange["steps"],
-                                              "span_lo": _trange["span_lo"],
-                                              "span_hi": _trange["span_hi"]}
+                    _iso["profiles"][name] = dict(_trange["iso"] or {})
                     _iso["current"] = name
                     _save_iso()
                 else:
@@ -995,9 +1002,7 @@ class H(http.server.BaseHTTPRequestHandler):
                     ok = False
             out = json.dumps({"ok": ok, "current": _iso["current"],
                               "profiles": _iso["profiles"],
-                              "steps": _trange["steps"],
-                              "span_lo": _trange["span_lo"],
-                              "span_hi": _trange["span_hi"]}).encode()
+                              "iso": _trange["iso"]}).encode()
             self.send_response(200 if ok else 400)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))

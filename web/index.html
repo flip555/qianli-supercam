@@ -208,9 +208,11 @@
             <select id="isoProfile"></select>
             <button id="isoSave" data-i18n="btn.saveAs">Save as…</button>
             <button id="isoDelete" class="ghost" data-i18n="btn.delete">Delete</button></div>
-          <div class="bandrow" id="stepsRow"><span class="lbl" data-i18n="label.steps">Steps</span>
-            <input type="number" id="steps" min="2" max="16" step="1" value="8">
-            <span class="lbl" style="min-width:0" data-i18n="label.bands">bands</span></div>
+          <div class="bandrow" id="isoRow"><span class="lbl" data-i18n="label.base">From</span>
+            <input type="number" id="isoBase" step="0.5" value="20">
+            <span class="lbl" style="min-width:0" data-i18n="label.step">Step</span>
+            <input type="number" id="isoStep" step="0.5" value="5"></div>
+          <div class="bandrow" id="isoColours"></div>
         </div>
       </details>
       <details class="sec" open>
@@ -568,6 +570,9 @@ async function doUpdate(){
 checkVersion();
 setTimeout(checkUpdate,4000);
 setInterval(checkVersion,60000);
+setInterval(()=>{ fetch('/palette',{cache:'no-store'}).then(r=>r.json())
+  .then(j=>{ if(j.ok && j.palette && palsel.value!==j.palette){ palsel.value=j.palette; thermalControls(); } })
+  .catch(()=>{}); }, 30000);
 
 /* view modes */
 const pipw={s:'20%',m:'26%',l:'46%'}, order=['s','m','l']; let pi='m';
@@ -594,12 +599,32 @@ document.getElementById('size').onclick=e=>{
 };
 const palsel=document.getElementById('pal');
 /* ---- isotherm: a palette mode with named profiles ---- */
-const stepsEl=document.getElementById('steps');
 const isoProf=document.getElementById('isoProfile');
+const isoBase=document.getElementById('isoBase'), isoStep=document.getElementById('isoStep');
+const isoScal=document.getElementById('isoColours');
+const DEF_COLOURS=['#2657ff','#1b9cff','#00d4ff','#22e0a1','#ffe14d','#ff9f1a','#ff4d4d','#ff00d4'];
+let isoSending=0;
+function isoSend(){
+  const cols=Array.from(isoScal.querySelectorAll('input[type=color]')).map(i=>i.value);
+  const qs='base='+encodeURIComponent(isoBase.value||20)+
+           '&step='+encodeURIComponent(isoStep.value||5)+
+           '&colours='+encodeURIComponent(cols.join(','));
+  isoSending=1;
+  fetch('/trange?'+qs,{cache:'no-store'}).catch(()=>{}).finally(()=>{ isoSending=0; });
+}
+function isoRenderScal(iso){
+  iso=iso||{base:20,step:5,colours:DEF_COLOURS};
+  isoBase.value=iso.base; isoStep.value=iso.step;
+  const cols=(iso.colours&&iso.colours.length)?iso.colours:DEF_COLOURS;
+  isoScal.innerHTML=cols.map((c,i)=>
+    '<input type="color" value="'+c+'" title="'+(iso.base+i*iso.step)+'-'+(iso.base+(i+1)*iso.step)+'\u00b0C">'
+  ).join('');
+  isoScal.querySelectorAll('input[type=color]').forEach(el=>{ el.oninput=isoSend; });
+}
 function thermalControls(){
   const iso = palsel.value === 'isotherm';
-  ['coloursRow','profileRow','stepsRow'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.style.display = iso ? '' : 'none';
+  [['profileRow',iso],['isoRow',iso],['isoColours',iso],['coloursRow',!iso]].forEach(([id,show])=>{
+    const el=document.getElementById(id); if(el) el.style.display = show ? '' : 'none';
   });
 }
 function isoRender(j){
@@ -610,9 +635,7 @@ function isoRender(j){
       .map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'">'+n+'</option>').join('');
     if(j.current) isoProf.value=j.current;
   }
-  if(j.steps && stepsEl) stepsEl.value=j.steps;
-  bandEls.spanLo.value=(j.span_lo==null?'':j.span_lo);
-  bandEls.spanHi.value=(j.span_hi==null?'':j.span_hi);
+  if(isoSending===0) isoRenderScal(j.iso);
   if(typeof bandSync==='function') bandSync();
 }
 const isoLoad=()=>fetch('/isotherm',{cache:'no-store'}).then(r=>r.json()).then(isoRender).catch(()=>{});
@@ -620,11 +643,8 @@ palsel.onchange=()=>fetch('/palette?name='+encodeURIComponent(palsel.value))
   .then(r=>r.json()).then(j=>{ if(!j.ok) console.warn('palette refused:', j.error); thermalControls(); }).catch(()=>{});
 fetch('/palette').then(r=>r.json())
   .then(j=>{ if(j.ok && j.palette) palsel.value=j.palette; thermalControls(); }).catch(()=>{});
-if(stepsEl) stepsEl.onchange=()=>{
-  const v=Math.max(2,Math.min(16,parseInt(stepsEl.value,10)||8));
-  stepsEl.value=v;
-  fetch('/trange?steps='+v,{cache:'no-store'}).catch(()=>{});
-};
+if(isoBase) isoBase.onchange=isoSend;
+if(isoStep) isoStep.onchange=isoSend;
 if(isoProf) isoProf.onchange=()=>fetch('/isotherm?apply='+encodeURIComponent(isoProf.value),{cache:'no-store'})
   .then(r=>r.json()).then(isoRender).catch(()=>{});
 document.getElementById('isoSave').onclick=()=>{

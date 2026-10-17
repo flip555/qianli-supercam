@@ -80,6 +80,10 @@
   #toast{position:fixed;right:18px;bottom:18px;max-width:380px;background:#3a1d1d;border:1px solid #7a2c2c;
     color:#ffd7d7;padding:10px 13px;border-radius:9px;font-size:13px;display:none;z-index:60;line-height:1.4}
   .stage:fullscreen{background:#000}
+  #frozenBadge{position:absolute;top:10px;left:10px;background:rgba(31,111,235,.92);color:#fff;
+    font:600 11px system-ui,sans-serif;padding:3px 8px;border-radius:6px;display:none;z-index:8;
+    letter-spacing:.06em;pointer-events:none}
+  body.frozen .stage{outline:2px solid rgba(31,111,235,.7);outline-offset:-2px}
   .alarmrow{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:12px}
   .alarmrow input[type=text]{flex:1 1 90px;min-width:70px}
   .alarmrow input[type=number]{width:64px}
@@ -196,6 +200,7 @@
         <div class="wipebar" id="wipebar"></div>
         <svg id="roiLayer" viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice"></svg>
         <div id="marks"></div>
+        <div id="frozenBadge" data-i18n="label.frozen">FROZEN</div>
         <div class="readout" id="readout">&mdash;</div>
       </div>
   <p class="note" data-i18n="note.text">Visible 1280&times;720 + thermal 160&times;120, both live MJPEG streams.
@@ -213,7 +218,7 @@
         </div>
         <div class="ctl"><span class="lbl" data-i18n="label.pip">PiP</span>
           <button id="size" data-i18n="pip.med">PiP: med</button></div>
-        <div class="ctl"><button id="fullscreen" data-i18n="btn.fullscreen">Fullscreen</button></div>
+        <div class="ctl"><button id="fullscreen" data-i18n="btn.fullscreen">Fullscreen</button><button id="freeze" data-i18n="btn.freeze">Freeze</button></div>
         <div class="ctl" id="wipewrap"><span class="lbl" data-i18n="label.split">Split</span>
           <input type="range" id="wipe" min="0" max="100" value="50"></div>
         <div class="ctl" id="fusewrap"><span class="lbl" data-i18n="label.fusion">Fusion</span>
@@ -1097,6 +1102,44 @@ document.getElementById('tcalReset').onclick=()=>{
     .then(r=>r.json()).then(j=>{ TCAL_POINTS=[]; tcalRender(j); }).catch(()=>{});
 };
 tcalLoad();
+
+/* ---- freeze ---- */
+let FROZEN=false;
+function snapSrc(img){
+  try{
+    const c=document.createElement('canvas');
+    c.width=img.naturalWidth||160; c.height=img.naturalHeight||120;
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    return c.toDataURL('image/jpeg',0.92);
+  }catch(e){ return null; }
+}
+function setFreeze(on){
+  if(on===FROZEN) return;
+  FROZEN=on;
+  const badge=document.getElementById('frozenBadge');
+  const btn=document.getElementById('freeze');
+  if(badge) badge.style.display=on?'block':'none';
+  if(btn) btn.style.background=on?'#1f6feb':'';
+  document.body.classList.toggle('frozen',on);
+  if(on){
+    if(thimg && thimg.complete && thimg.naturalWidth){ const d=snapSrc(thimg); if(d) thimg.src=d; }
+    if(vid && vid.getAttribute && vid.getAttribute('src') && vid.naturalWidth){ const d=snapSrc(vid); if(d) vid.src=d; }
+  }else{
+    if(thimg) thimg.src='/stream.mjpg?t='+Date.now();
+    if(vid && vid.getAttribute && vid.getAttribute('src') && !vcOn) vid.src='/video.mjpg?t='+Date.now();
+  }
+}
+document.getElementById('freeze').onclick=()=>setFreeze(!FROZEN);
+function typingIn(ev){ return /input|select|textarea/i.test(((ev.target&&ev.target.tagName)||'')+''); }
+addEventListener('keydown',ev=>{
+  if(typingIn(ev) || ev.key==='Escape') return;
+  if(ev.key===' ' || ev.code==='Space'){ ev.preventDefault(); setFreeze(!FROZEN); return; }
+  if(ev.key==='s' || ev.key==='S'){ const b=document.getElementById('snap'); if(b) b.click(); return; }
+  if(/^[1-5]$/.test(ev.key)){
+    const m=['pip','wipe','fusion','thermal','video'][+ev.key-1];
+    if(m) setMode(m,true);
+  }
+});
 
 const bandEls={clipLo:document.getElementById('clipLo'), clipHi:document.getElementById('clipHi'),
                spanLo:document.getElementById('spanLo'), spanHi:document.getElementById('spanHi')};

@@ -5,7 +5,7 @@ Handshake reuses the reverse-engineered client; the read loop is the one that
 provably pulls the full stream (~1.2 MB/s). The browser decodes the visible
 H.264 itself (WebCodecs on /raw.h264); thermal is served as MJPEG.
 """
-import collections, http.server, io, json, os, queue, socket, socketserver, subprocess, sys, threading, time
+import collections, csv, http.server, io, json, os, queue, socket, socketserver, subprocess, sys, threading, time
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -16,6 +16,7 @@ from supercam import reboot as REBOOT
 from supercam import update as UPD
 from supercam.auth import Auth, check_password
 from supercam import authpages
+from supercam import regions as REG
 from supercam import __version__ as VERSION
 from PIL import Image
 
@@ -42,6 +43,77 @@ AUTH = Auth(os.environ.get("SUPERCAM_AUTH_PATH")
             or os.path.join(os.path.dirname(CAL_PATH), "auth.json"))
 _hist = collections.deque(maxlen=3600)   # (ts, min, max, mean) at ~1 Hz, shared by viewers
 _hist_last = 0.0
+
+REGIONS_PATH = os.path.join(os.path.dirname(CAL_PATH), "regions.json")
+REGIONS_CSV = os.path.join(os.path.dirname(CAL_PATH), "regions.csv")
+_regions = []
+_csv_last = 0.0
+
+
+def _sanitise_regions(items):
+    out, seen_ref = [], False
+    for r in (items or [])[:REG.MAX_REGIONS]:
+        if not isinstance(r, dict):
+            continue
+        kind = r.get("kind")
+        if kind not in ("point", "rect", "poly"):
+            continue
+        pts = r.get("pts")
+        if not isinstance(pts, list) or not pts:
+            continue
+        try:
+            pts = [[int(round(float(q[0]))), int(round(float(q[1])))] for q in pts][:8]
+        except Exception:
+            continue
+        ref = bool(r.get("ref")) and not seen_ref
+        seen_ref = seen_ref or ref
+        out.append({"id": str(r.get("id") or "r%d" % (len(out) + 1))[:32],
+                    "kind": kind, "pts": pts,
+                    "name": str(r.get("name") or "")[:40], "ref": ref})
+    return out
+
+
+def _load_regions():
+    global _regions
+    try:
+        with open(REGIONS_PATH) as f:
+            _regions = _sanitise_regions(json.load(f))
+        print("regions restored: %d" % len(_regions), flush=True)
+    except Exception:
+        _regions = []
+
+
+def _save_regions():
+    try:
+        with open(REGIONS_PATH, "w") as f:
+            json.dump(_regions, f)
+    except Exception:
+        pass
+
+
+def _maybe_csv(results):
+    global _csv_last
+    now = time.time()
+    if now - _csv_last < 1.0:
+        return
+    _csv_last = now
+    try:
+        if os.path.exists(REGIONS_CSV) and os.path.getsize(REGIONS_CSV) > 10 * 1024 * 1024:
+            os.replace(REGIONS_CSV, REGIONS_CSV + ".1")
+        new = not os.path.exists(REGIONS_CSV)
+        with open(REGIONS_CSV, "a", newline="") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(["time", "region", "name", "kind", "min_c", "max_c", "avg_c", "delta_c"])
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            for r in results:
+                w.writerow([ts, r.get("id"), r.get("name"), r.get("kind"),
+                            r.get("min_c"), r.get("max_c"), r.get("avg_c"), r.get("delta_c", "")])
+    except Exception:
+        pass
+
+
+_load_regions()
 
 _trange = {"clip_lo": None, "clip_hi": None,   # shown at all (None = no bound)
            "span_lo": None, "span_hi": None,   # palette span   (None = automatic)
@@ -330,13 +402,25 @@ def _stall_watchdog() -> None:
                     except Exception:
                         pass
         if actions >= 3 and _camera_reachable():
-            print("pipeline stuck for %.0fs with the camera up after %d attempts "
-                  "- exiting so the supervisor starts it clean" % (age, actions), flush=True)
-            try:
-                sys.stdout.flush()
-            except Exception:
-                pass
-            os._exit(2)
+            if actions >= 6:
+                print("pipeline stuck for %.0fs with the camera up after %d attempts "
+                      "- exiting so the supervisor starts it clean" % (age, actions), flush=True)
+                try:
+                    sys.stdout.flush()
+                except Exception:
+                    pass
+                os._exit(2)
+            # First try the cheaper remedy: drop the camera session so the stream is
+            # rebuilt. Exiting the process after three encoder restarts used to happen
+            # constantly, and every exit signed every viewer out.
+            print("pipeline stuck for %.0fs with the camera up - reconnecting the session"
+                  % age, flush=True)
+            if _client is not None:
+                for sock in list(_client.socks.values()):
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
 
 
 def _thermal_worker(client, sock, data):
@@ -353,6 +437,16 @@ def _thermal_worker(client, sock, data):
     except Exception:
         return
     global _hist_last
+    try:
+        if _regions:
+            ref_id = next((r["id"] for r in _regions if r.get("ref")), None)
+            res = REG.stats_for(TH.values(frames[-1]), TH.W, TH.H, _regions,
+                                SCALE, OFFSET, ref_id)
+            with _lock:
+                _state["regions"] = res
+            _maybe_csv(res)
+    except Exception:
+        pass
     with _lock:
         _state["tjpeg"] = jpeg; _state["tts"] = time.time()
         _state["stats"] = stats; _state["frames"] += 1
@@ -725,14 +819,15 @@ class H(http.server.BaseHTTPRequestHandler):
     # ---------- authentication plumbing ----------
     API_PATHS = ("/health", "/version", "/thermal.json", "/history.json", "/camera",
                  "/reboot", "/update", "/calibration", "/palette", "/trange", "/isotherm",
-                 "/whoami")
+                 "/whoami", "/regions", "/regions.csv")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
 
     # These endpoints take their writes as GET query strings (the GUI calls them
     # that way), so "POST means write" is not enough to keep a guest read-only.
-    QUERY_WRITES = ("/palette", "/trange", "/isotherm", "/calibration", "/history.json")
+    QUERY_WRITES = ("/palette", "/trange", "/isotherm", "/calibration", "/history.json",
+                    "/regions.csv")
 
     def _is_write(self, p):
         if self.command == "POST":
@@ -984,6 +1079,42 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Content-Length", str(len(j)))
                 self.end_headers(); self.wfile.write(j)
+        elif p == "/regions":
+            if self.command == "POST":
+                global _regions
+                try:
+                    items = json.loads(self._body() or "[]")
+                except Exception:
+                    items = None
+                if not isinstance(items, list):
+                    self._json_out(400, {"ok": False, "error": "expected a JSON list"})
+                    return
+                _regions = _sanitise_regions(items)
+                _save_regions()
+                with _lock:
+                    _state["regions"] = []
+                print("regions -> %d" % len(_regions), flush=True)
+            with _lock:
+                res = list(_state.get("regions") or [])
+            self._json_out(200, {"ok": True, "regions": _regions, "stats": res})
+        elif p == "/regions.csv":
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if "clear" in q:
+                try:
+                    open(REGIONS_CSV, "w").close()
+                except Exception:
+                    pass
+            try:
+                with open(REGIONS_CSV, "rb") as f:
+                    data = f.read()
+            except Exception:
+                data = b"time,region,name,kind,min_c,max_c,avg_c,delta_c\n"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="regions.csv"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         elif p == "/history.json":
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             if "clear" in q:

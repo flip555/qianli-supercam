@@ -13,6 +13,7 @@ Deliberately small but real:
 State lives beside the relay's other files (auth.json, 0600).
 """
 import argparse
+import base64
 import hashlib
 import hmac
 import json
@@ -45,7 +46,6 @@ def check_password(password: str, stored: str) -> bool:
 class Auth:
     def __init__(self, path: str):
         self.path = path
-        self.sessions = {}
         self.cfg = {"enabled": True, "username": "admin", "password": "",
                     "guest": {"enabled": False, "password": ""}}
         self.load()
@@ -57,7 +57,7 @@ class Auth:
                 data = json.load(f)
             if isinstance(data.get("guest"), dict):
                 self.cfg["guest"].update(data["guest"])
-            for key in ("enabled", "username", "password"):
+            for key in ("enabled", "username", "password", "secret"):
                 if key in data:
                     self.cfg[key] = data[key]
         except Exception:
@@ -100,6 +100,20 @@ class Auth:
         self.save()
 
     # ---------- sessions ----------
+    # Stateless signed cookies: the token carries role/user/expiry and an HMAC over
+    # it, so a relay restart no longer signs everybody out (which it did constantly
+    # while the stall watchdog was restarting the process).
+
+    def _secret(self) -> bytes:
+        secret = self.cfg.get("secret")
+        if not secret:
+            secret = secrets.token_hex(32)
+            self.cfg["secret"] = secret
+            self.save()
+        return secret.encode()
+
+    def _sign(self, payload: str) -> str:
+        return hmac.new(self._secret(), payload.encode(), hashlib.sha256).hexdigest()
     def login(self, username: str, password: str):
         if not self.enabled():
             return self._new_session("admin", self.cfg.get("username") or "admin")
@@ -114,30 +128,32 @@ class Auth:
         return None
 
     def _new_session(self, role: str, user: str) -> str:
-        token = secrets.token_urlsafe(32)
-        self.sessions[token] = {"role": role, "user": user, "exp": time.time() + SESSION_TTL}
-        return token
+        data = {"r": role, "u": user, "e": int(time.time()) + SESSION_TTL}
+        payload = base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip("=")
+        return payload + "." + self._sign(payload)
 
     def session(self, token: str):
-        if not token:
+        try:
+            payload, sig = (token or "").split(".", 1)
+            if not hmac.compare_digest(self._sign(payload), sig):
+                return None
+            data = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+            if int(data.get("e", 0)) < time.time():
+                return None
+            return {"role": data.get("r", "guest"), "user": data.get("u", "guest")}
+        except Exception:
             return None
-        entry = self.sessions.get(token)
-        if not entry:
-            return None
-        if entry["exp"] < time.time():
-            self.sessions.pop(token, None)
-            return None
-        return entry
 
     def logout(self, token: str) -> None:
-        self.sessions.pop(token or "", None)
+        """Stateless tokens: the browser drops the cookie, nothing to revoke here."""
+        return None
 
     def reset(self) -> None:
         """Recovery: forget the password and go back to the setup page."""
         self.cfg["password"] = ""
         self.cfg["enabled"] = True
         self.cfg["guest"] = {"enabled": False, "password": ""}
-        self.sessions.clear()
+        self.cfg["secret"] = secrets.token_hex(32)   # invalidates every issued cookie
         self.save()
 
 

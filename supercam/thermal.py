@@ -107,6 +107,11 @@ def _peaks(vals, n: int = 3, min_sep: int = 14, margin: int = 3):
     return out
 
 
+def values(frame: bytes):
+    """The raw 16-bit thermal values, for region statistics."""
+    return struct.unpack_from("<%dH" % N, frame, PAYLOAD_OFFSET)
+
+
 def decode(frame: bytes, palette: str = "rainbow",
            scale: float = 0.01, offset: float = 0.0,
            clip_lo: float = None, clip_hi: float = None,

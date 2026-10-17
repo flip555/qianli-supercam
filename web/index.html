@@ -749,14 +749,15 @@ async function whoami(){
     if(AUTH_ROLE!=='admin'){
       /* the owner grants capabilities per feature; hide what this guest was not given */
       const P=j.perms||{};
-      const cls=(name,on)=>document.body.classList.toggle(name,!on);
-      cls('no-thermal', !(P.display||P.reference||P.calibration));
-      cls('no-display', !P.display);
-      cls('no-reference', !P.reference);
-      cls('no-calibration', !P.calibration);
-      cls('no-measure', !P.measure);
-      cls('no-snapshot', !P.snapshot);
-      cls('no-alarms', !P.alarms);
+      /* pass whether the capability is GRANTED; the class means "hide" */
+      const cls=(name,granted)=>document.body.classList.toggle(name,!granted);
+      cls('no-thermal', (P.display||P.reference||P.calibration));
+      cls('no-display', P.display);
+      cls('no-reference', P.reference);
+      cls('no-calibration', P.calibration);
+      cls('no-measure', P.measure);
+      cls('no-snapshot', P.snapshot);
+      cls('no-alarms', P.alarms);
       const aw=document.getElementById('alignSec'); if(aw) aw.style.display='none';
       const cog=document.getElementById('cog'); if(cog) cog.style.display='none';
       const clr=document.getElementById('chartclear'); if(clr) clr.style.display='none';

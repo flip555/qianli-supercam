@@ -28,7 +28,9 @@ STYLE = """
  .row label{flex:1 1 150px;margin:0}
  .row button{width:auto;flex:0 0 auto;margin:0}
  .who{color:#8b949e;font-size:13px;margin:0 0 20px}
- .permlabel{display:block;margin:0 0 6px;color:#c8d1dc;font-size:13px}
+ .permlabel{display:flex;align-items:center;gap:9px;margin:0 0 7px;color:#c8d1dc;font-size:13px}
+ .permlabel input[type=checkbox]{display:inline-block;width:15px;height:15px;margin:0;
+   flex:0 0 15px;accent-color:#1f6feb;background:none;border:0}
 """
 
 

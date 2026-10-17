@@ -1092,16 +1092,16 @@ function notifyRender(j){
   box.querySelectorAll('.notrow').forEach(el=>{
     const name=el.dataset.ch;
     el.querySelector('.nsave').onclick=()=>{
-      const fd=new FormData(); fd.append('channel',name);
+      const fd=new URLSearchParams(); fd.append('channel',name);
       el.querySelectorAll('input[data-k]').forEach(i=>{ if(i.value.trim()) fd.append(i.dataset.k,i.value.trim()); });
       fetch('/notify',{method:'POST',body:fd}).then(r=>r.json()).then(notifyRender).catch(()=>{});
     };
     el.querySelector('.ntest').onclick=()=>{
-      const fd=new FormData(); fd.append('channel',name); fd.append('test','1');
+      const fd=new URLSearchParams(); fd.append('channel',name); fd.append('test','1');
       fetch('/notify',{method:'POST',body:fd}).then(r=>r.json()).then(j2=>{ notifyRender(j2); toast('test \u2192 '+name); }).catch(()=>{});
     };
     const cl=el.querySelector('.nclear');
-    if(cl) cl.onclick=()=>{ const fd=new FormData(); fd.append('channel',name); fd.append('clear','1');
+    if(cl) cl.onclick=()=>{ const fd=new URLSearchParams(); fd.append('channel',name); fd.append('clear','1');
       fetch('/notify',{method:'POST',body:fd}).then(r=>r.json()).then(notifyRender).catch(()=>{}); };
   });
 }
@@ -1137,7 +1137,7 @@ function preRender(j){
 }
 function preLoad(){ fetch('/prerecord',{cache:'no-store'}).then(r=>r.json()).then(preRender).catch(()=>{}); }
 document.getElementById('preSave').onclick=()=>{
-  const fd=new FormData();
+  const fd=new URLSearchParams();
   fd.append('enabled', document.getElementById('preOn').checked ? '1' : '0');
   fd.append('before_s', document.getElementById('preBefore').value || 10);
   fd.append('after_s', document.getElementById('preAfter').value || 10);
@@ -1336,7 +1336,7 @@ document.getElementById('refClear').onclick=()=>{
 };
 document.getElementById('dtSpan').onchange=()=>{
   const v=document.getElementById('dtSpan').value;
-  const fd=new FormData(); fd.append('span',v);
+  const fd=new URLSearchParams(); fd.append('span',v);
   fetch('/reference',{method:'POST',body:fd}).then(r=>r.json()).then(j=>{
     if(j.ok){ DT_SPAN=+j.span; dtPaint(); if(DT_ON) thimg.src='/dt.mjpg?t='+Date.now(); }
   }).catch(()=>{});
@@ -1362,7 +1362,7 @@ function refsRender(j){
 }
 function refsLoad(){ fetch('/references',{cache:'no-store'}).then(r=>r.json()).then(refsRender).catch(()=>{}); }
 function refForm(action, name){
-  const fd=new FormData(); fd.append('action',action); fd.append('name',name||'');
+  const fd=new URLSearchParams(); fd.append('action',action); fd.append('name',name||'');
   return fetch('/references',{method:'POST',body:fd}).then(r=>r.json());
 }
 document.getElementById('refSaveNamed').onclick=()=>{

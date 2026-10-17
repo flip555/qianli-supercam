@@ -127,13 +127,18 @@
       <option value="whitehot" data-i18n="palette.whitehot">white hot</option>
       <option value="blackhot" data-i18n="palette.blackhot">black hot</option>
     </select>
+    <span id="trangewrap"><label for="tmin" data-i18n="label.band">Band °C</label>
+      <input type="number" id="tmin" step="0.5" placeholder="auto" title="lowest temperature shown in colour">
+      <input type="number" id="tmax" step="0.5" placeholder="auto" title="highest temperature shown in colour">
+      <button id="trauto" data-i18n="btn.auto">Auto</button></span>
     <span id="wipewrap"><label for="wipe" data-i18n="label.split">Split</label>
       <input type="range" id="wipe" min="0" max="100" value="50"></span>
     <span id="calwrap">
       <label for="ts" data-i18n="label.videoScale">Video scale</label><input type="range" id="ts" min="0.5" max="4" step="0.01" value="1">
       <label for="tx" data-i18n="label.x">X</label><input type="range" id="tx" min="-60" max="60" step="0.5" value="0">
       <label for="ty" data-i18n="label.y">Y</label><input type="range" id="ty" min="-60" max="60" step="0.5" value="0">
-      <button id="calreset" data-i18n="btn.centre">Centre</button>
+      <button id="calreset" data-i18n="btn.resetSaved">Reset to saved</button>
+      <button id="calfactory" class="ghost" data-i18n="btn.centre">Centre</button>
       <button id="calsave" data-i18n="btn.saveDefault">Save as default</button>
     </span>
     <button id="snap" data-i18n="btn.snapshot">Snapshot</button>
@@ -227,6 +232,7 @@ layout();
 
 /* restart a stalled MJPEG <img> */
 function watch(img,src){
+  img.dataset.stream=src;
   let last=Date.now();
   img.addEventListener('load',()=>{ last=Date.now(); dot.classList.add('on'); });
   img.addEventListener('error',()=>setTimeout(()=>{ img.src=src+'?t='+Date.now(); },1500));
@@ -377,6 +383,17 @@ function retryCodec(){
 }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) retryCodec(); });
 
+/* A tab left hidden gets throttled, which can leave the MJPEG streams showing a
+   stale frame (most visible on the thermal side of a wipe). On waking, prod them. */
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden) return;
+  [vid, thimg].forEach(img=>{
+    const base=img.dataset.stream;
+    if(base) img.src=base+'?t='+Date.now();
+  });
+  layout(); renderMarks(lastStats);
+});
+
 /* camera-up indicator: the relay's /health is authoritative, so a frozen view
    can no longer be mistaken for a dead camera (there is no beeper on ours) */
 let _lastFrames=null, _lastAdvance=Date.now();
@@ -437,6 +454,11 @@ function setMode(m,save){
   document.querySelectorAll('#modes button').forEach(x=>x.classList.toggle('on', x.dataset.mode===m));
   stage.className='stage mode-'+m;
   document.getElementById('wipewrap').classList.toggle('on', m==='wipe');
+  /* hide what the current view cannot use */
+  const thermal = (m!=='video');
+  document.getElementById('pal').style.display   = thermal ? '' : 'none';
+  document.getElementById('trangewrap').style.display = thermal ? '' : 'none';
+  document.getElementById('size').style.display  = (m==='pip') ? '' : 'none';
   layout(); renderMarks(lastStats);
   if(save){ try{ localStorage.setItem(MODE_KEY,m); }catch(e){} }
 }
@@ -451,6 +473,23 @@ palsel.onchange=()=>fetch('/palette?name='+encodeURIComponent(palsel.value))
   .then(r=>r.json()).then(j=>{ if(!j.ok) console.warn('palette refused:', j.error); }).catch(()=>{});
 fetch('/palette').then(r=>r.json())
   .then(j=>{ if(j.ok && j.palette) palsel.value=j.palette; }).catch(()=>{});
+
+/* thermal temperature band: colour between two temperatures, white outside */
+const tminEl=document.getElementById('tmin'), tmaxEl=document.getElementById('tmax');
+function sendBand(){
+  const lo=tminEl.value.trim(), hi=tmaxEl.value.trim();
+  const url=(!lo || !hi) ? '/trange?auto=1'
+          : ('/trange?min='+encodeURIComponent(lo)+'&max='+encodeURIComponent(hi));
+  fetch(url,{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    if(j.ok){ tminEl.value=(j.min==null?'':j.min); tmaxEl.value=(j.max==null?'':j.max); }
+    else { console.warn('temperature band refused:', j.error); }
+  }).catch(()=>{});
+}
+tminEl.onchange=sendBand; tmaxEl.onchange=sendBand;
+document.getElementById('trauto').onclick=()=>{ tminEl.value=''; tmaxEl.value=''; sendBand(); };
+fetch('/trange',{cache:'no-store'}).then(r=>r.json())
+  .then(j=>{ if(j.ok){ tminEl.value=(j.min==null?'':j.min); tmaxEl.value=(j.max==null?'':j.max); } })
+  .catch(()=>{});
 
 /* wipe (off by default) */
 const wb=document.getElementById('wipebar'), wr=document.getElementById('wipe');
@@ -487,7 +526,11 @@ const saveSoon=()=>{ clearTimeout(saveTimer); saveTimer=setTimeout(saveCal,700);
 ts.oninput=e=>{CAL.ts=+e.target.value; applyCal(); saveSoon();};
 tx.oninput=e=>{CAL.tx=+e.target.value; applyCal(); saveSoon();};
 ty.oninput=e=>{CAL.ty=+e.target.value; applyCal(); saveSoon();};
-document.getElementById('calreset').onclick=()=>{CAL.ts=1;CAL.tx=0;CAL.ty=0;applyCal();saveSoon();};
+document.getElementById('calreset').onclick=async()=>{
+  try{ const srv=await (await fetch('/calibration',{cache:'no-store'})).json();
+       CAL.ts=srv.ts; CAL.tx=srv.tx; CAL.ty=srv.ty; applyCal(); }catch(e){}
+};
+document.getElementById('calfactory').onclick=()=>{ CAL.ts=1; CAL.tx=0; CAL.ty=0; applyCal(); };
 document.getElementById('calsave').onclick=e=>{ saveCal();
   e.target.textContent=t('btn.saved'); setTimeout(()=>e.target.textContent=t('btn.saveDefault'),1500); };
 (async()=>{

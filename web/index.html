@@ -103,8 +103,9 @@
     cursor:pointer;z-index:9;opacity:.75}
   #snapFloat:hover{opacity:1;background:rgba(31,111,235,.85)}
   body.reana #vwrap{display:none!important}
-  body.reana #thimg{clip-path:none!important;inset:0!important;width:100%!important;height:100%!important;
-    opacity:1!important;object-fit:cover!important}
+  body.reana #thimg{display:block!important;visibility:visible!important;clip-path:none!important;
+    inset:0!important;width:100%!important;height:100%!important;opacity:1!important;
+    object-fit:cover!important}
   #liveFloat{position:absolute;top:54px;right:10px;display:none;padding:5px 11px;border-radius:999px;
     background:rgba(8,10,13,.74);border:1px solid #3a4553;color:#e6e8eb;
     font:600 11px system-ui,sans-serif;cursor:pointer;z-index:9}
@@ -720,7 +721,8 @@ document.addEventListener('visibilitychange',()=>{
     const base=img.dataset.stream;
     if(base) img.src=base+'?t='+Date.now();
   });
-  layout(); renderMarks(lastStats);
+  layout();
+  if(!document.body.classList.contains('reana')) renderMarks(lastStats);
 });
 
 /* camera-up indicator: the relay's /health is authoritative, so a frozen view
@@ -1319,7 +1321,7 @@ function reanaImage(){
   const cs=getComputedStyle(stage);
   const num=(k,d)=>{ const v=parseFloat(cs.getPropertyValue(k)); return isNaN(v)?d:v; };
   const mode=(stage.className.match(/mode-([a-z]+)/)||[])[1]||'wipe';
-  const split=num('--split',50)/100, fuse=num('--fuse',55)/100, pipw=num('--pipw',26)/100;
+  const split=num('--split',50)/100, fuse=num('--fuse',1), pipw=num('--pipw',26)/100;
   const load=(src)=>new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; });
   const still='/snapshots/'+encodeURIComponent(name);
   Promise.all([
@@ -1343,19 +1345,26 @@ function reanaImage(){
       else if(wipeSide==='t') g.rect(0,0,W,H*split);
       else if(wipeSide==='b') g.rect(0,H*(1-split),W,H*split);
       else g.rect(W*split,0,W*(1-split),H);
-      g.clip(); g.drawImage(t,dx,dy,tw*sc,th*sc); g.restore();
+      g.clip();
+      g.globalAlpha=fuse;
+      g.drawImage(t,dx,dy,tw*sc,th*sc); g.globalAlpha=1; g.restore();
       g.fillStyle='#fff';
       if(wipeSide==='t'||wipeSide==='b') g.fillRect(0,Math.round(H*split)-1,W,2);
       else g.fillRect(Math.round(W*split)-1,0,2,H);
     } else if(mode==='pip'){
       const pw=pipw*W, ph=pw*th/tw, x=W-14-pw, y=H-14-ph;
-      g.drawImage(t,x,y,pw,ph);
+      g.globalAlpha=fuse; g.drawImage(t,x,y,pw,ph); g.globalAlpha=1;
       g.strokeStyle='#3a4553'; g.lineWidth=1; g.strokeRect(x+0.5,y+0.5,pw-1,ph-1);
+    } else if(mode==='video'){
+      /* nothing over the picture */
     } else {
       g.globalAlpha=fuse; g.drawImage(t,dx,dy,tw*sc,th*sc); g.globalAlpha=1;
     }
     thimg.src=c.toDataURL('image/jpeg',0.9);
-  }).catch(()=>{});
+  }).catch((e)=>{
+    console.warn('re-analysis compose failed', e);
+    toast('re-analysis failed to compose');
+  });
 }
 function reanaStats(){
   if(!REANA) return;

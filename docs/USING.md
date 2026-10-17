@@ -90,7 +90,7 @@ Choose **isotherm** in the Palette list to paint a colour per temperature band.
 **Thermal → Reference frame.** With a known-good board in view, press **Set reference**.
 
 * **ΔT view** shows the signed difference: blue colder, white identical, red hotter
-  (clamped at ±10 °C)
+  (span selectable, ±1 to ±20 °C)
 * The readout switches to ΔT max / average / min
 * Each measured region shows a ΔT figure beside its absolute values
 
@@ -216,7 +216,7 @@ clips.
   slope with the far reference.
 * **You want ΔT between a reference board and this one.** Use **Thermal → Reference
   frame**: take the reference on the known-good board, then switch on ΔT view. The
-  reference is a single frame and the span is fixed at ±10 °C; re-take it if the scene or
+  reference is a single frame and the span is selectable (±1 to ±20 °C); re-take it if the scene or
   the palette changes.
 * **A tab left alone comes back to the login page.** That should no longer happen —
   sessions are signed cookies now — so tell the maintainer if it does.

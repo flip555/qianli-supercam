@@ -994,7 +994,11 @@ function roiDraw(){
 function roiPush(){
   fetch('/regions',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(ROI)}).then(r=>r.json())
-    .then(j=>{ if(j.ok && j.regions){ ROI=j.regions; roiDraw(); } }).catch(()=>{});
+    .then(j=>{
+      if(j.ok && j.regions){ ROI=j.regions; roiDraw(); }
+      /* the live poll is suspended during re-analysis, so re-measure the stored frame here */
+      if(document.body.classList.contains('reana')) reanaStats();
+    }).catch(()=>{});
 }
 function roiList(stats){
   const box=document.getElementById('regionList'); if(!box) return;

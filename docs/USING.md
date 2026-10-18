@@ -220,6 +220,17 @@ The footer's **°C / °F** switch changes every temperature on screen; settings 
 The browser also remembers the mode, split, fusion, wipe side, language, unit and which
 panels are open.
 
+## Local HTTPS
+
+The relay serves HTTP (`:8099`) and HTTPS (`:8499`) together; both are toggled in
+**Account → Local network access**. HTTPS gives the page a secure context, which is what
+lets the browser decode the video itself instead of leaning on the relay's MJPEG transcode.
+
+A self-signed certificate is generated on first start — the browser warns once and then
+works. To use a trusted one, replace `cert.pem` and `key.pem` in the state directory with
+your own pair and restart; a reverse proxy that terminates TLS also works, pointed at
+`http://<relay>:8099`.
+
 ## Updating
 
 The header shows the running version and turns into an update link when a newer release

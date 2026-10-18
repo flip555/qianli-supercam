@@ -7,6 +7,7 @@ H.264 itself (WebCodecs on /raw.h264); thermal is served as MJPEG.
 """
 import base64, collections, csv, http.server, io, json, os, queue, socket, socketserver, subprocess, sys, threading, time, zipfile
 import re
+import ssl
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -17,6 +18,7 @@ from supercam import reboot as REBOOT
 from supercam import update as UPD
 from supercam.auth import Auth, check_password
 from supercam import auth as authmod
+from supercam import serverconf as SRV
 from supercam import authpages
 from supercam import regions as REG
 from supercam import alarms as AL
@@ -322,6 +324,8 @@ def _on_alarms(fired):
 _load_alarms()
 
 SNAPSHOT_DIR = os.path.join(os.path.dirname(CAL_PATH), "snapshots")
+SERVER_PATH = os.environ.get("SUPERCAM_SERVER_PATH") or \
+    os.path.join(os.path.dirname(CAL_PATH), "server.json")
 PREREC_PATH = os.path.join(os.path.dirname(CAL_PATH), "prerecord.json")
 PREREC_DIR = os.path.join(os.path.dirname(CAL_PATH), "captures")
 PREREC = PreRecord(PREREC_DIR)
@@ -1089,7 +1093,7 @@ class H(http.server.BaseHTTPRequestHandler):
                  "/history.csv", "/snapshots", "/snapshot.zip",
                  "/reference", "/dt.json", "/dt.mjpg",
                  "/references", "/compare.json", "/dt.jpg",
-                 "/reanalyze.jpg", "/reanalyze.json")
+                 "/reanalyze.jpg", "/reanalyze.json", "/restart")
 
     def _is_api(self, p):
         return p in self.API_PATHS or p.startswith(("/i18n/", "/raw", "/video", "/stream"))
@@ -1269,6 +1273,17 @@ class H(http.server.BaseHTTPRequestHandler):
                 elif action == "login":
                     AUTH.set_enabled(f.get("enabled") == "1")
                     msg = "Sign-in is %s." % ("required" if AUTH.enabled() else "off")
+                elif action == "server":
+                    cfg = SRV.load(SERVER_PATH)
+                    cfg["http"] = "s_http" in f
+                    cfg["https"] = "s_https" in f
+                    try:
+                        cfg["https_port"] = max(1, min(int(f.get("s_https_port") or cfg["https_port"]), 65535))
+                    except Exception:
+                        pass
+                    cfg["https_names"] = (f.get("s_names") or "").strip()
+                    SRV.save(SERVER_PATH, cfg)
+                    msg = "Saved. Restart the relay for this to take effect."
                 elif action == "perms":
                     AUTH.set_perms({cap: ("p_" + cap) in f for cap in authmod.GUEST_PERMS})
                     msg = "Guest permissions updated."
@@ -1283,7 +1298,8 @@ class H(http.server.BaseHTTPRequestHandler):
             self._page(authpages.account(AUTH.cfg.get("username"), self.role,
                                          AUTH.enabled(),
                                          bool((AUTH.cfg.get("guest") or {}).get("enabled")),
-                                         msg, err, AUTH.perms()))
+                                         msg, err, AUTH.perms(),
+                                         SRV.load(SERVER_PATH), PORT))
             return True
         return False
 
@@ -1489,6 +1505,18 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+        elif p == "/restart" and self.command == "POST":
+            if self.role != "admin":
+                self._json_out(403, {"ok": False, "error": "admin only"})
+                return
+            self._json_out(200, {"ok": True, "restarting": True})
+            try:
+                self.wfile.flush()
+            except Exception:
+                pass
+            print("restart requested from the page", flush=True)
+            threading.Timer(0.5, lambda: os._exit(0)).start()
+            return
         elif p == "/reference":
             if self.command == "POST":
                 form = self._form()
@@ -2128,5 +2156,28 @@ class S(socketserver.ThreadingTCPServer):
 if __name__ == "__main__":
     threading.Thread(target=camera_loop, daemon=True).start()
     threading.Thread(target=_stall_watchdog, daemon=True).start()
-    print("relay2 on :%d" % PORT, flush=True)
-    S(("0.0.0.0", PORT), H).serve_forever()
+    cfg = SRV.load(SERVER_PATH)
+    servers = []
+    if cfg["http"]:
+        servers.append(S(("0.0.0.0", PORT), H))
+    if cfg["https"]:
+        cert = os.path.join(os.path.dirname(CAL_PATH), "cert.pem")
+        key = os.path.join(os.path.dirname(CAL_PATH), "key.pem")
+        try:
+            made = SRV.ensure_cert(cert, key, SRV.local_names(cfg.get("https_names")))
+            if made:
+                print("self-signed certificate created (%s)" % cert, flush=True)
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(cert, key)
+            srv = S(("0.0.0.0", cfg["https_port"]), H)
+            srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+            servers.append(srv)
+        except Exception as exc:
+            print("https not started: %s" % exc, flush=True)
+    if not servers:
+        print("no listener enabled - using http", flush=True)
+        servers.append(S(("0.0.0.0", PORT), H))
+    for srv in servers[:-1]:
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    print("relay2 on %s" % ", ".join(":%d" % s.server_address[1] for s in servers), flush=True)
+    servers[-1].serve_forever()

@@ -1,3 +1,4 @@
+import html
 """Minimal, self-contained pages for sign-in, first-run setup and account settings.
 
 Kept out of relay.py so the HTTP plumbing there stays readable; they share the
@@ -80,14 +81,23 @@ def _perm_rows(perms) -> str:
 
 
 def account(username: str, role: str, enabled: bool, guest_enabled: bool,
-            message: str = "", error: bool = False, perms: dict = None) -> str:
+            message: str = "", error: bool = False, perms: dict = None,
+            server: dict = None, port: int = 8099) -> str:
+    server = server or {}
+    http_on = bool(server.get("http", True))
+    https_on = bool(server.get("https"))
+    names = str(server.get("https_names") or "")
+    try:
+        hport = int(server.get("https_port") or 8443)
+    except Exception:
+        hport = 8443
     login_state = "Sign-in is <b>required</b>." if enabled else "Sign-in is <b>off</b> — anyone who can reach this relay has full control."
     login_action = "Turn sign-in off" if enabled else "Require sign-in"
     login_next = "0" if enabled else "1"
     guest_state = "A guest can watch, change the view and take snapshots, but cannot change settings or the camera."
     guest_action = "Remove guest" if guest_enabled else "Set guest password"
     guest_next = "0" if guest_enabled else "1"
-    return """<!doctype html><meta charset=utf-8><title>SuperCam — account</title>
+    page = """<!doctype html><meta charset=utf-8><title>SuperCam — account</title>
 <style>%s</style><div class=account>
 <h1>Account</h1>
 <p class=who>Signed in as <b>%s</b> (%s) · <a href="/">camera</a> · <a href="/logout">sign out</a></p>
@@ -113,6 +123,24 @@ def account(username: str, role: str, enabled: bool, guest_enabled: bool,
   <input type=hidden name=enabled value=%s>
   <button type=submit class=ghost>%s</button>
  </form></section>
+<section><h2>Local network access</h2>
+ <p class=sub style="margin:0 0 10px">HTTPS uses a self-signed certificate: the browser
+ warns once, and then the browser-side decoder works on the LAN instead of the slow
+ transcode. Both listeners can run at the same time.</p>
+ <form method=post action=/account style="display:block;background:none;border:0;padding:0;width:auto">
+  <input type=hidden name=action value=server>
+  <label class=permlabel><input type=checkbox name=s_http@@H@@> HTTP on port @@PORT@@</label>
+  <label class=permlabel><input type=checkbox name=s_https@@S@@> HTTPS (self-signed) on port
+    <input name=s_https_port value="@@HPORT@@" style="width:76px;margin-left:6px"></label>
+  <label class=permlabel>Extra names/IPs for the certificate
+    <input name=s_names value="@@NAMES@@" placeholder="192.168.1.50, supercam.local"
+      style="width:100%%;margin-top:4px"></label>
+  <button type=submit style="width:auto;margin-top:8px">Save</button>
+ </form>
+ <form method=post action=/restart onsubmit="return confirm('Restart the relay now?')">
+  <button type=submit class=ghost style="width:auto;margin-top:6px">Restart relay</button>
+ </form>
+</section>
 <section><h2>Guest permissions</h2>
  <p class=sub style="margin:0 0 10px">What a guest may do. Camera settings, the update,
  the account and notification credentials always stay with the admin.</p>
@@ -134,3 +162,9 @@ def account(username: str, role: str, enabled: bool, guest_enabled: bool,
              _perm_rows(perms), guest_state, guest_next,
              "New guest password" if not guest_enabled else "New password (optional)",
              "required" if not guest_enabled else "", guest_action)
+    page = (page.replace("@@H@@", " checked" if http_on else "")
+                .replace("@@S@@", " checked" if https_on else "")
+                .replace("@@PORT@@", str(port))
+                .replace("@@HPORT@@", str(hport))
+                .replace("@@NAMES@@", html.escape(names, quote=True)))
+    return page

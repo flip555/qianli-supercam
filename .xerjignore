@@ -1,0 +1,8 @@
+# XERJ indexing exclusions — keep the index token-lean.
+# Built-in XERJ defaults already skip .venv/ and __pycache__/, and hidden
+# directories (.git/) are always skipped. These lines make the contract
+# explicit and survive any future change to the built-in defaults.
+.venv/
+__pycache__/
+capture/
+.git/

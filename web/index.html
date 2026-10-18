@@ -682,7 +682,7 @@ setInterval(()=>{
   if(!vcOn || vcFallback || document.hidden) return;
   const now=Date.now();
   if(vcLastFrame && now-vcLastFrame>6000){ mjpegFallback(t('why.stalled')); scheduleRetry(); }
-  else if(!vcLastFrame && vcStart && now-vcStart>10000) mjpegFallback(t('why.noFrame'));
+  else if(!vcLastFrame && vcStart && now-vcStart>10000){ mjpegFallback(t('why.noFrame')); scheduleRetry(); }
 }, 2000);
 
 /* If the codec path dies unexpectedly - most likely because the relay restarted,

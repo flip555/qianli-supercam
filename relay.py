@@ -641,15 +641,10 @@ def _stall_watchdog() -> None:
                     except Exception:
                         pass
         if actions >= 3 and _camera_reachable():
-            if actions >= 6:
-                print("%s pipeline stuck for %.0fs with the camera up after %d attempts "
-                      "- exiting so the supervisor starts it clean"
-                      % (time.strftime("%H:%M:%S"), age, actions), flush=True)
-                try:
-                    sys.stdout.flush()
-                except Exception:
-                    pass
-                os._exit(2)
+            # It used to exit at six attempts so the supervisor started a clean process.
+            # With a camera that wedges every few minutes that meant an outage each time -
+            # every exit drops every viewer's connection and the page falls back to MJPEG.
+            # Reopening the camera session is enough; keep doing it instead.
             # First try the cheaper remedy: drop the camera session so the stream is
             # rebuilt. Exiting the process after three encoder restarts used to happen
             # constantly, and every exit signed every viewer out.

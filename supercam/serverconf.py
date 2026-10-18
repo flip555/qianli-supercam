@@ -10,7 +10,7 @@ import os
 import socket
 import subprocess
 
-DEFAULTS = {"http": True, "https": False, "https_port": 8443, "https_names": ""}
+DEFAULTS = {"http": True, "https": True, "https_port": 8443, "https_names": ""}
 
 
 def load(path):

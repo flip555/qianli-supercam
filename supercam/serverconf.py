@@ -47,6 +47,15 @@ def local_names(extra=""):
             names.add(info[4][0])
     except Exception:
         pass
+    try:
+        out = subprocess.run(["ip", "-4", "-o", "addr", "show"],
+                             capture_output=True, text=True).stdout
+        for line in out.splitlines():
+            parts = line.split()
+            if "inet" in parts:
+                names.add(parts[parts.index("inet") + 1].split("/")[0])
+    except Exception:
+        pass
     for n in (extra or "").replace(",", " ").split():
         if n.strip():
             names.add(n.strip())
